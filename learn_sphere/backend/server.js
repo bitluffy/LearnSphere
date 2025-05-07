@@ -8,7 +8,7 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
-
+app.use(express.urlencoded({ extended: true }));
 // Updated API endpoint
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"; // Added /openai/ path
 
