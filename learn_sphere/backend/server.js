@@ -3,6 +3,9 @@ import cors from "cors";
 import axios from "axios";
 import dotenv from "dotenv";
 import mongoose from 'mongoose';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import User from './models/user.model.js';
 
 // Configuration
 dotenv.config();
@@ -12,6 +15,161 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // Updated API endpoint
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"; // Added /openai/ path
+
+// Authentication endpoints
+app.post("/api/signup", async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
+    if (existingUser) {
+      return res.status(400).json({ 
+        error: "User already exists with this email or username" 
+      });
+    }
+    
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+    
+    // Create new user
+    const newUser = new User({
+      username,
+      email,
+      password: hashedPassword
+    });
+    
+    // Save user to database
+    await newUser.save();
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: newUser._id, username: newUser.username }, 
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    res.status(201).json({
+      message: "User created successfully",
+      token,
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email
+      }
+    });
+  } catch (error) {
+    console.error("Signup error:", error);
+    res.status(500).json({ error: "Signup failed" });
+  }
+});
+
+app.post("/api/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+    
+    // Check password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: user._id, username: user.username }, 
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    res.json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+// After the login and signup endpoints, add this:
+
+
+// Middleware to verify JWT token
+
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: "Unauthorized - No token provided" });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  console.log("Received token:", token); // Log the received token for debugging purposes
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: "Unauthorized - Invalid token" });
+  }
+};
+// Signout endpoint
+app.post("/api/signout", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // Even if no token is provided, we'll still allow signout
+      return res.json({
+        success: true,
+        message: "Successfully signed out"
+      });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    
+    try {
+      // Verify the token but don't block signout if it fails
+      jwt.verify(token, process.env.JWT_SECRET);
+      // In a production app, you might add the token to a blacklist here
+    } catch (tokenError) {
+      // Token is invalid, but we'll still allow signout
+      console.log("Invalid token during signout:", tokenError.message);
+    }
+    
+    res.json({
+      success: true,
+      message: "Successfully signed out"
+    });
+  } catch (error) {
+    console.error("Signout error:", error);
+    res.status(500).json({ error: "Signout failed" });
+  }
+});
+// Example of a protected route
+app.get("/api/user/profile", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 // Core physics tutoring function
 const handlePhysicsQuery = async (query) => {
@@ -143,7 +301,7 @@ app.listen(PORT, () => {
 });
 
 mongoose.connect(process.env.MONGO).then(()=>{
-  console.log('Connected to MongoDB') 
+  console.log('Connected to MongoDB')
 }).catch((err)=>{
   console.log(err)
 })

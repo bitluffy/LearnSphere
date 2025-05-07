@@ -1,24 +1,15 @@
 import mongoose from 'mongoose';
 
-const documentSchema = new mongoose.Schema({
-    title: {
+const promptSchema = new mongoose.Schema({
+    query: {
         type: String,
         required: true
     },
-    filePath: {
+    response: {
         type: String,
         required: true
     },
-    fileType: {
-        type: String,
-        required: true,
-        enum: ['pdf', 'doc', 'docx', 'txt', 'image']
-    },
-    // fileSize: {
-    //     type: Number,
-    //     required: true
-    // },
-    uploadedAt: {
+    createdAt: {
         type: Date,
         default: Date.now
     }
@@ -39,9 +30,7 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    physics: [documentSchema],
-    maths: [documentSchema],
-    chemistry: [documentSchema]
+    prompts: [promptSchema] // <-- Store prompt history here
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
