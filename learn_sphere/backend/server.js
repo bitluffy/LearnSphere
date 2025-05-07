@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import dotenv from "dotenv";
+import mongoose from 'mongoose';
 
 // Configuration
 dotenv.config();
@@ -140,3 +141,9 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Physics agent running at http://localhost:${PORT}`);
 });
+
+mongoose.connect(process.env.MONGO).then(()=>{
+  console.log('Connected to MongoDB') 
+}).catch((err)=>{
+  console.log(err)
+})
