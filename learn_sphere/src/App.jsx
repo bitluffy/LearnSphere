@@ -1,12 +1,3 @@
-<<<<<<< HEAD
-import { useState } from 'react'
-
-import './App.css'
-
-function App() {
-
-
-=======
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Home from './pages/Home';
@@ -16,7 +7,6 @@ import Physics from './pages/Physics';
 import Chemistry from './pages/Chemistry';
 import Navbar from './pages/Navbar';
 const App = () => {
->>>>>>> 4f08e3a3276f9a28134325a35b8b6d77b4595847
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />

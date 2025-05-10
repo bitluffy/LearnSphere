@@ -6,7 +6,7 @@ const LandingPage = () => {
   console.log("Om was here!");
   return (
     <div>
-      <h1>Welcome to LearnSphere</h1>
+      <h1 className='text-red-500'>Welcome to LearnSphere</h1>
       <div style={{ display: 'flex', gap: '10px' }}>
         <button onClick={() => navigate('/Home')}>Go to Home</button>
         <button onClick={() => navigate('/Maths')}>Go to Maths</button>
