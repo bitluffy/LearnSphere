@@ -12,7 +12,7 @@ const Home = () => {
   return (
     <>
       <Navbar/>
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col items-center justify-start py-12">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col items-center justify-start py-12 overflow-y-auto">
         <h1 className="text-3xl md:text-4xl font-extrabold text-blue-400 mb-10 text-center drop-shadow-lg">Choose Your Learning Agent</h1>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl px-4">
           {/* Physics Card */}
