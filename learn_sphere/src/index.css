@@ -10,3 +10,12 @@
     color: #f87171 !important;
     background-color: transparent !important;
   }
+
+.clip-path-diamond {
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  min-width: 150px;
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

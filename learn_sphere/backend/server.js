@@ -277,6 +277,378 @@ Example format:
   }
 });
 
+// function fixMermaidCode(input) {
+//   // First, handle the literal '\n' string by replacing it with actual newlines
+//   let corrected = input.replace(/\\n/g, '\n');
+  
+//   // Remove any trailing brackets or invalid characters
+//   corrected = corrected.replace(/\]\s*$/, '');
+  
+//   // Split into lines and clean each line
+//   let lines = corrected.split('\n').map(line => line.trim());
+  
+//   // Remove empty lines
+//   lines = lines.filter(line => line.length > 0);
+  
+//   // Process each line to ensure proper Mermaid syntax
+//   lines = lines.map((line, index) => {
+//     if (index === 0) {
+//       // First line should be the flowchart declaration
+//       return 'flowchart TD';
+//     }
+    
+//     // Handle node definitions and connections
+//     line = line.replace(/\s*-->\s*/g, ' --> ');
+//     line = line.replace(/\[([^\]]*)\]\s*-->/g, '[$1] -->');
+    
+//     // Ensure proper spacing around nodes
+//     line = line.replace(/([A-Za-z0-9])\[([^\]]*)\]/g, '$1[$2]');
+    
+//     // Add proper indentation
+//     return '    ' + line;
+//   });
+  
+//   // Join lines back together with actual newlines
+//   corrected = lines.join('\n');
+  
+//   // Remove any double newlines
+//   corrected = corrected.replace(/\n\n+/g, '\n');
+  
+//   // Ensure proper spacing around arrows
+//   corrected = corrected.replace(/\s*-->\s*/g, ' --> ');
+  
+//   // Fix any remaining malformed node definitions
+//   corrected = corrected.replace(/\[([^\]]*)\]\s*-->/g, '[$1] -->');
+  
+//   return corrected;
+// }
+
+// function preprocessMermaidCode(rawCode) {
+
+//   return rawCode
+
+//     .replace(/\\\|/g, '|')  // Replace \| with |
+
+//     .replace(/\\n/g, '\n')  // (optional) handle literal \\n to \n if needed
+
+//     .trim();                // Remove extra spaces
+
+// }
+
+
+// function fixMermaidCode(input) {
+//   // Replace \n with actual newlines
+//   let corrected = input.replace(/\\n/g, '\n');
+
+//   // Ensure flowchart header is on its own line
+//   corrected = corrected.replace(/^(flowchart TD|graph TD)/, '$1\n');
+
+//   // Fix spacing after node definitions and arrows
+//   corrected = corrected.replace(/\](?=\w)/g, ']\n'); // Add newline after ] if followed by a word character
+//   corrected = corrected.replace(/\](?=\s*[a-zA-Z0-9]+\s*[-<])/g, ']\n'); // Add newline if ] is followed by node connection
+
+//   // Fix the issue with arrow connections and node declarations (ensure space between them)
+//   corrected = corrected.replace(/(\]\s*)([A-Za-z0-9]+[<>-])/g, '$1\n$2');
+
+//   // Fix any escaped | to just be pipe symbols
+//   corrected = corrected.replace(/\\\|/g, '|');  // Remove escaping from pipe symbols
+
+//   // Sanitize labels inside square brackets
+//   corrected = corrected.replace(/\[([^\]]+)\]/g, (match, label) => {
+//       const safeLabel = label
+//           .replace(/\^2/g, '²')
+//           .replace(/\^/g, '')         
+//           .replace(/-/g, '−')         
+//           .replace(/</g, '&lt;')      
+//           .replace(/>/g, '&gt;')      
+//           .replace(/&/g, '&amp;');    
+//       return [${safeLabel}];
+//   });
+
+//   return corrected;
+// }
+
+
+function fixMermaidCode(input) {
+  // Replace \n with actual newlines
+  let corrected = input.replace(/\\n/g, '\n');
+
+  // Ensure flowchart header is on its own line
+  corrected = corrected.replace(/^(flowchart TD|graph TD)/, '$1\n');
+
+  // Fix spacing after node definitions and arrows
+  corrected = corrected.replace(/\](?=\w)/g, ']\n'); // Add newline after ] if followed by a word character
+  corrected = corrected.replace(/\](?=\s*[a-zA-Z0-9]+\s*[-<])/g, ']\n'); // Add newline if ] is followed by node connection
+
+  // Fix the issue with arrow connections and node declarations (ensure space between them)
+  corrected = corrected.replace(/(\]\s*)([A-Za-z0-9]+[<>-])/g, '$1\n$2');
+
+  // Fix any escaped | to just be pipe symbols
+  corrected = corrected.replace(/\\\|/g, '|');  // Remove escaping from pipe symbols
+
+  // Sanitize labels inside square brackets
+  corrected = corrected.replace(/\[([^\]]+)\]/g, (match, label) => {
+      const safeLabel = label
+          .replace(/\^2/g, '²')
+          .replace(/\^/g, '')         
+          .replace(/-/g, '−')         
+          .replace(/</g, '&lt;')      
+          .replace(/>/g, '&gt;')      
+          .replace(/&/g, '&amp;');    
+      return `[${safeLabel}]`;
+  });
+
+  return corrected;
+}
+
+
+
+
+
+
+
+// --- Simple Flowchart Generation Endpoint ---
+app.post("/generate-flowchart", async (req, res) => {
+  try {
+    const { subject, content } = req.body;
+    
+    if (!subject || !content) {
+      return res.status(400).json({ error: "Subject and content are required" });
+    }
+
+    const systemPrompt = `You are a flowchart generation expert. Convert the given ${subject} content into a structured flowchart.
+Follow these rules:
+1. Break down the content into clear steps
+2. Identify decision points and their outcomes
+3. Create a hierarchical structure
+4. Use simple, clear labels
+5. Focus on key concepts and their relationships
+
+Return the response in this exact JSON format:
+{
+  "title": "Main topic or process",
+  "nodes": [
+    {
+      "id": "A",
+      "label": "Step or concept description",
+      "type": "process" // can be "process", "decision", or "start/end"
+    }
+  ],
+  "connections": [
+    {
+      "from": "A",
+      "to": "B",
+      "label": "optional connection label"
+    }
+  ]
+}`;
+
+    const response = await axios.post(
+      GROQ_API_URL,
+      {
+        model: "llama3-70b-8192",
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt
+          },
+          { 
+            role: "user", 
+            content: `Generate a structured flowchart for this ${subject} content:\n\n${content}`
+          }
+        ],
+        temperature: 0.3
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const responseText = response.data.choices[0].message.content;
+    
+    // Extract JSON from the response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("Invalid response format");
+    }
+
+    const flowchartData = JSON.parse(jsonMatch[0]);
+
+    // Generate ASCII representation
+    const asciiFlowchart = generateAsciiFlowchart(flowchartData);
+
+    res.json({ 
+      structuredData: flowchartData,
+      asciiFlowchart,
+      rawResponse: responseText
+    });
+  } catch (error) {
+    console.error("Flowchart generation error:", error);
+    res.status(500).json({ error: "Failed to generate flowchart" });
+  }
+});
+
+function generateAsciiFlowchart(data) {
+  let ascii = `\n${data.title}\n`;
+  ascii += '='.repeat(data.title.length) + '\n\n';
+
+  // Generate nodes
+  data.nodes.forEach(node => {
+    let nodeBox = '';
+    switch (node.type) {
+      case 'decision':
+        nodeBox = `  ${node.id}  \n` +
+                 ` /     \\ \n` +
+                 `| ${node.label.padEnd(20)} |\n` +
+                 ` \\     / \n`;
+        break;
+      case 'start/end':
+        nodeBox = `  ${node.id}  \n` +
+                 `┌${'─'.repeat(22)}┐\n` +
+                 `│ ${node.label.padEnd(20)} │\n` +
+                 `└${'─'.repeat(22)}┘\n`;
+        break;
+      default:
+        nodeBox = `  ${node.id}  \n` +
+                 `┌${'─'.repeat(22)}┐\n` +
+                 `│ ${node.label.padEnd(20)} │\n` +
+                 `└${'─'.repeat(22)}┘\n`;
+    }
+    ascii += nodeBox + '\n';
+  });
+
+  // Generate connections
+  ascii += '\nConnections:\n';
+  data.connections.forEach(conn => {
+    ascii += `${conn.from} --> ${conn.to}`;
+    if (conn.label) {
+      ascii += ` : ${conn.label}`;
+    }
+    ascii += '\n';
+  });
+
+  return ascii;
+}
+
+
+// --- Flowchart Visualization Endpoint ---
+app.post("/visualize-flowchart", async (req, res) => {
+  try {
+    const { structuredData } = req.body;
+    
+    if (!structuredData) {
+      return res.status(400).json({ error: "Structured data is required" });
+    }
+
+    // Generate HTML for the flowchart
+    const html = generateFlowchartHTML(structuredData);
+    
+    res.send(html);
+  } catch (error) {
+    console.error("Flowchart visualization error:", error);
+    res.status(500).json({ error: "Failed to visualize flowchart" });
+  }
+});
+
+function generateFlowchartHTML(data) {
+  const nodeStyles = {
+    'start': 'background-color: #4CAF50; color: white;',
+    'end': 'background-color: #f44336; color: white;',
+    'process': 'background-color: #2196F3; color: white;',
+    'decision': 'background-color: #FF9800; color: white;'
+  };
+
+  let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>${data.title}</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+                background-color: #f5f5f5;
+            }
+            .flowchart {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 20px;
+                padding: 20px;
+            }
+            .node {
+                padding: 10px 20px;
+                border-radius: 5px;
+                text-align: center;
+                min-width: 200px;
+                position: relative;
+            }
+            .decision {
+                clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+                padding: 30px;
+                min-width: 150px;
+                min-height: 150px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .connection {
+                position: relative;
+                width: 2px;
+                background-color: #666;
+                margin: 0 auto;
+            }
+            .connection-label {
+                position: absolute;
+                background-color: white;
+                padding: 2px 5px;
+                border-radius: 3px;
+                font-size: 12px;
+                white-space: nowrap;
+            }
+            .title {
+                text-align: center;
+                color: #333;
+                margin-bottom: 30px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1 class="title">${data.title}</h1>
+        <div class="flowchart">
+  `;
+
+  // Create nodes
+  data.nodes.forEach(node => {
+    const style = nodeStyles[node.type] || nodeStyles['process'];
+    const nodeClass = node.type === 'decision' ? 'node decision' : 'node';
+    html += `
+      <div class="${nodeClass}" style="${style}">
+        ${node.label}
+      </div>
+    `;
+  });
+
+  // Create connections
+  data.connections.forEach(conn => {
+    html += `
+      <div class="connection">
+        ${conn.label ? `<div class="connection-label">${conn.label}</div>` : ''}
+      </div>
+    `;
+  });
+
+  html += `
+        </div>
+    </body>
+    </html>
+  `;
+
+  return html;
+}
 
 // --- Server Start ---
 const PORT = process.env.PORT || 3000;
