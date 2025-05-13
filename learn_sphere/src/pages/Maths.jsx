@@ -1,103 +1,253 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom';
+import React, { useRef, useState, useEffect } from 'react';
 import mermaid from "mermaid";
 import Navbar from './Navbar';
 
 const Maths = () => {
-  const navigate = useNavigate();
   const containerRef = useRef(null);
-  const [description, setDescription] = useState('');
   const [userPrompt, setUserPrompt] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("chat");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [flowchartData, setFlowchartData] = useState(null);
 
   const subject = "Mathematics";
 
+  useEffect(() => {
+    // Auto scroll to bottom on new message
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [chatMessages, flowchartData]);
+
   const handleGenerate = async (e) => {
     e.preventDefault();
+    if (!userPrompt.trim()) return;
     setLoading(true);
-    setDescription('');
-    if (containerRef.current) {
-      containerRef.current.innerHTML = '';
+
+    if (mode === "chat") {
+      setChatMessages(prev => [...prev, { role: "user", text: userPrompt }]);
     }
+    setFlowchartData(null);
+
     try {
-      const res = await fetch('http://localhost:3000/generate-flowchart', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ subject, content: userPrompt }),
-      });
-      const data = await res.json();
-      if (data.structuredData && data.structuredData.mermaid) {
-        mermaid.initialize({ startOnLoad: false });
-        const svgId = "mermaid-chart";
-        mermaid.render(svgId, data.structuredData.mermaid).then(({ svg }) => {
-          if (containerRef.current) {
-            containerRef.current.innerHTML = svg;
-          }
-        }).catch((err) => {
-          if (containerRef.current) {
-            containerRef.current.innerHTML = "<div style='color:red'>Invalid Mermaid code</div>";
-          }
-          console.error("Mermaid render error:", err);
+      if (mode === "flowchart") {
+        const res = await fetch('http://localhost:3000/generate-flowchart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject, content: userPrompt }),
         });
-        setDescription(data.structuredData.description || '');
-      } else {
-        if (containerRef.current) {
-          containerRef.current.innerHTML = "<div style='color:red'>No flowchart generated</div>";
+        const data = await res.json();
+        if (data.structuredData && data.structuredData.mermaid) {
+          mermaid.initialize({ startOnLoad: false });
+          const svgId = "mermaid-chart";
+          mermaid.render(svgId, data.structuredData.mermaid).then(({ svg }) => {
+            setFlowchartData({
+              svg,
+              description: data.structuredData.description || ''
+            });
+          }).catch(() => {
+            setFlowchartData({
+              svg: "<div style='color:red'>Invalid Mermaid code</div>",
+              description: ''
+            });
+          });
+        } else {
+          setFlowchartData({
+            svg: "<div style='color:red'>No flowchart generated</div>",
+            description: ''
+          });
         }
-        setDescription('');
+      } else if (mode === "chat") {
+        const res = await fetch('http://localhost:3000/maths', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: userPrompt }),
+        });
+        const data = await res.json();
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: data.response || "No response." }
+        ]);
       }
     } catch (err) {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = "<div style='color:red'>Failed to load flowchart</div>";
+      if (mode === "flowchart") {
+        setFlowchartData({
+          svg: "<div style='color:red'>Failed to load flowchart</div>",
+          description: ''
+        });
+      } else {
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: "Error: " + err.message }
+        ]);
       }
-      setDescription('');
-      console.error("API error:", err);
     }
+    setUserPrompt('');
     setLoading(false);
   };
 
   return (
     <>
       <Navbar />
-      <div style={{ padding: "2rem" }}>
-        <h2>📊 Mermaid Diagram</h2>
-        <form onSubmit={handleGenerate} style={{ marginBottom: "1.5rem" }}>
+      <div style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: "#0f0f0f",
+        color: "#e4e4e7",
+        fontFamily: "Inter, sans-serif"
+      }}>
+        {/* Header */}
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "1rem 1.5rem",
+          borderBottom: "1px solid #333",
+          backgroundColor: "#1e1e20",
+        }}>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}>
+            📚 Mathematics Assistant
+          </h2>
+          <div style={{
+            display: "flex",
+            background: "#2a2a2e",
+            borderRadius: "0.5rem",
+            overflow: "hidden"
+          }}>
+            <button
+              onClick={() => setMode("chat")}
+              disabled={loading}
+              style={{
+                padding: "0.5rem 1rem",
+                background: mode === "chat" ? "#2563eb" : "transparent",
+                color: mode === "chat" ? "#fff" : "#aaa",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600"
+              }}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setMode("flowchart")}
+              disabled={loading}
+              style={{
+                padding: "0.5rem 1rem",
+                background: mode === "flowchart" ? "#2563eb" : "transparent",
+                color: mode === "flowchart" ? "#fff" : "#aaa",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600"
+              }}
+            >
+              Flowchart
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable Chat/Flowchart */}
+        <div
+          ref={containerRef}
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "1rem 1.5rem",
+          }}
+        >
+          {mode === "chat" && chatMessages.length === 0 && (
+            <p style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}>
+              Start a conversation by asking a mathematics question.
+            </p>
+          )}
+          {mode === "chat" && chatMessages.map((msg, idx) => (
+            <div key={idx} style={{
+              display: "flex",
+              justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+              margin: "0.5rem 0"
+            }}>
+              <div style={{
+                background: msg.role === "user" ? "#2563eb" : "#2c2c35",
+                color: "#fff",
+                borderRadius: "1rem",
+                padding: "0.75rem 1rem",
+                maxWidth: "75%",
+                fontSize: "1rem"
+              }}>
+                {msg.text}
+              </div>
+            </div>
+          ))}
+          {mode === "flowchart" && flowchartData && (
+            <div style={{ color: "#fff" }}>
+              <div dangerouslySetInnerHTML={{ __html: flowchartData.svg }} />
+              {flowchartData.description && (
+                <p style={{ marginTop: "1rem", color: "#aaa" }}>
+                  <strong>Description:</strong> {flowchartData.description}
+                </p>
+              )}
+            </div>
+          )}
+          {loading && (
+            <p style={{ textAlign: "center", color: "#60a5fa", marginTop: "1rem" }}>
+              {mode === "flowchart" ? "Generating flowchart..." : "Getting answer..."}
+            </p>
+          )}
+        </div>
+
+        {/* Fixed Input at Bottom */}
+        <form
+          onSubmit={handleGenerate}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "1rem",
+            padding: "1rem",
+            borderTop: "1px solid #333",
+            background: "#1a1a1c",
+            position: "sticky",
+            bottom: 0,
+            zIndex: 10
+          }}
+        >
           <textarea
             value={userPrompt}
             onChange={e => setUserPrompt(e.target.value)}
-            placeholder="Enter your mathematics topic or problem for flowchart generation..."
-            rows={4}
-            style={{ width: "100%", fontSize: "1rem", padding: "0.5rem" }}
+            rows={1}
+            placeholder={mode === "flowchart" ? "Describe topic for flowchart..." : "Ask a maths question..."}
+            style={{
+              flex: 1,
+              resize: "none",
+              background: "#121212",
+              border: "1px solid #333",
+              borderRadius: "0.5rem",
+              padding: "0.75rem 1rem",
+              color: "#fff",
+              fontSize: "1rem"
+            }}
+            disabled={loading}
             required
           />
           <button
             type="submit"
+            disabled={loading}
             style={{
-              marginTop: "0.75rem",
-              padding: "0.5rem 1.5rem",
-              fontSize: "1rem",
               background: "#2563eb",
               color: "#fff",
               border: "none",
-              borderRadius: "4px",
-              cursor: "pointer"
+              padding: "0.75rem 1.5rem",
+              fontSize: "1rem",
+              borderRadius: "0.5rem",
+              fontWeight: "bold",
+              cursor: loading ? "not-allowed" : "pointer"
             }}
-            disabled={loading}
           >
-            {loading ? "Generating..." : "Generate Flowchart"}
+            {loading ? "..." : "Send"}
           </button>
         </form>
-        <div ref={containerRef} />
-        {description && (
-          <div style={{ marginTop: "1.5rem", fontSize: "1.1rem", color: "#333" }}>
-            <strong>Description:</strong> {description}
-          </div>
-        )}
       </div>
     </>
-  )
-}
+  );
+};
 
 export default Maths;

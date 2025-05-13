@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-
-const Physics = () => {
+import Navbar from "./Navbar";
+const Chemistry = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
 
@@ -35,49 +35,64 @@ const Physics = () => {
 
   return (
     <>
-    
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-2xl bg-white shadow-lg rounded-lg flex flex-col overflow-hidden">
-        <div className="flex-1 p-4 overflow-y-auto space-y-2 h-[500px]">
-          {messages.map((msg, index) => (
-            <div
-              key={index}
-              className={`flex ${
-                msg.sender === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
+      <Navbar />
+      <div className="min-h-screen flex flex-col items-center justify-center p-4" style={{ background: "#18181b" }}>
+        <div className="w-full max-w-2xl bg-[#23232a] shadow-lg rounded-lg flex flex-col overflow-hidden">
+          <div className="px-6 pt-6 pb-2">
+            <h2 className="text-2xl font-bold text-blue-400 mb-2">🧪 Chemistry Expert Chat</h2>
+            <p className="text-gray-300 mb-4">
+              Ask any chemistry question below to get step-by-step explanations, equations, and real-world applications.
+            </p>
+          </div>
+          <div className="flex-1 p-4 overflow-y-auto space-y-2 h-[500px]">
+            {messages.map((msg, index) => (
               <div
-                className={`px-4 py-2 rounded-lg max-w-xs ${
-                  msg.sender === "user"
-                    ? "bg-blue-500 text-white rounded-br-none"
-                    : "bg-gray-300 text-black rounded-bl-none"
-                }`}
+                key={index}
+                className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
               >
-                {msg.text}
+                <div
+                  className={`px-4 py-2 rounded-lg max-w-xs ${
+                    msg.sender === "user"
+                      ? "bg-blue-600 text-white rounded-br-none"
+                      : "bg-gray-700 text-gray-100 rounded-bl-none"
+                  }`}
+                >
+                  {msg.text}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-        <div className="p-4 border-t flex">
-          <input
-            className="flex-1 border border-gray-300 rounded-l px-4 py-2 focus:outline-none"
-            type="text"
-            placeholder="Ask a physics question..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-          />
-          <button
-            className="bg-blue-500 text-white px-6 py-2 rounded-r hover:bg-blue-600"
-            onClick={sendMessage}
-          >
-            Send
-          </button>
+            ))}
+          </div>
+          <div className="p-4 border-t flex" style={{ borderColor: "#333" }}>
+            <input
+              className="flex-1 border border-gray-700 rounded-l px-4 py-2 focus:outline-none bg-[#18181b] text-gray-100 placeholder-gray-400"
+              type="text"
+              placeholder="Ask a chemistry question..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              style={{
+                background: "#18181b",
+                color: "#f3f4f6",
+                borderColor: "#333",
+              }}
+            />
+            <button
+              className="px-6 py-2 rounded-r hover:bg-blue-700"
+              style={{
+                background: "#2563eb",
+                color: "#fff",
+                border: "none",
+                borderRadius: "0 0.5rem 0.5rem 0",
+                cursor: "pointer",
+              }}
+              onClick={sendMessage}
+            >
+              Send
+            </button>
+          </div>
         </div>
       </div>
-    </div>
     </>
   );
 };
-
-export default Physics;
+export default Chemistry;
