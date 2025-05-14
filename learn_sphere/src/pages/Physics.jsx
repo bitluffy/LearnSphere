@@ -1,218 +1,301 @@
-import React, { useState, useEffect } from "react";
-import 'katex/dist/katex.min.css';
-import { InlineMath, BlockMath } from 'react-katex';
+import React, { useRef, useState, useEffect } from "react";
+import mermaid from "mermaid";
+import { InlineMath, BlockMath } from "react-katex";
 import Navbar from "./Navbar";
-const ChatBot = () => {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFlowchartMode, setIsFlowchartMode] = useState(false);
 
-  // Load messages from localStorage
-  useEffect(() => {
-    const savedMessages = localStorage.getItem('chatHistory');
-    if (savedMessages) {
-      setMessages(JSON.parse(savedMessages));
-    }
-  }, []);
+const Physics = () => {
+  const containerRef = useRef(null);
+  const [userPrompt, setUserPrompt] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("chat");
+  const [chatMessages, setChatMessages] = useState([]);
+  const [flowchartData, setFlowchartData] = useState(null);
 
-  // Save messages to localStorage
-  useEffect(() => {
-    localStorage.setItem('chatHistory', JSON.stringify(messages));
-  }, [messages]);
+  const subject = "Physics";
 
   const renderWithLatex = (text) => {
-    // Split by $$...$$ (block) and $...$ (inline), non-greedy, multiline
     const segments = text.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
     return segments.map((segment, index) => {
-      if (segment.startsWith('$$') && segment.endsWith('$$')) {
+      if (segment.startsWith("$$") && segment.endsWith("$$")) {
         return <BlockMath key={index} math={segment.slice(2, -2).trim()} />;
-      } else if (segment.startsWith('$') && segment.endsWith('$')) {
+      } else if (segment.startsWith("$") && segment.endsWith("$")) {
         return <InlineMath key={index} math={segment.slice(1, -1).trim()} />;
       }
       return <span key={index}>{segment}</span>;
     });
   };
 
-  const renderFlowchart = (data) => {
-    const nodeStyles = {
-      'start': 'bg-green-500',
-      'end': 'bg-red-500',
-      'process': 'bg-blue-500',
-      'decision': 'bg-orange-500'
-    };
+  useEffect(() => {
+    // Auto scroll to bottom on new message or flowchart
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [chatMessages, flowchartData]);
 
-    return (
-      <div className="w-full max-w-3xl mx-auto my-4 p-4 bg-gray-800 rounded-lg">
-        <h3 className="text-xl font-bold text-center text-blue-400 mb-4">{data.title}</h3>
-        <div className="flex flex-col items-center gap-4">
-          {data.nodes.map((node, index) => (
-            <div key={node.id} className="relative">
-              <div className={`${nodeStyles[node.type] || nodeStyles.process} text-white p-3 rounded-lg min-w-[200px] text-center ${
-                node.type === 'decision' ? 'clip-path-diamond' : ''
-              }`}>
-                {node.label}
-              </div>
-              {index < data.nodes.length - 1 && (
-                <div className="h-6 w-0.5 bg-gray-500 mx-auto" />
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="mt-4">
-          {data.connections.map((conn, index) => (
-            <div key={index} className="text-gray-300 text-sm text-center">
-              {conn.label && (
-                <span className="bg-gray-700 px-2 py-1 rounded">
-                  {conn.from} → {conn.to}: {conn.label}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+  const handleGenerate = async (e) => {
+    e.preventDefault();
+    if (!userPrompt.trim()) return;
+    setLoading(true);
 
-  const sendMessage = async () => {
-    if (!input.trim() || isLoading) return;
-    const userMessage = { sender: "user", text: input };
-    setMessages(prev => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
+    if (mode === "chat") {
+      setChatMessages((prev) => [...prev, { role: "user", text: userPrompt }]);
+    }
+    setFlowchartData(null);
+
     try {
-      const token = localStorage.getItem('token');
-      const endpoint = isFlowchartMode ? "http://localhost:3000/generate-flowchart" : "http://localhost:3000/physics";
-      const body = isFlowchartMode 
-        ? { subject: "physics", content: input }
-        : { query: input };
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify(body),
-      });
-      
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      const data = await res.json();
-      
-      if (isFlowchartMode) {
-        const botMessage = { 
-          sender: "bot", 
-          text: "Here's a flowchart explaining the process:",
-          flowchart: data.structuredData
-        };
-        setMessages(prev => [...prev, botMessage]);
-      } else {
-        const botMessage = { 
-          sender: "bot", 
-          text: data.response || "No response found."
-        };
-        setMessages(prev => [...prev, botMessage]);
+      if (mode === "flowchart") {
+        const res = await fetch("http://localhost:3000/generate-flowchart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject, content: userPrompt }),
+        });
+        const data = await res.json();
+        if (data.structuredData && data.structuredData.mermaid) {
+          mermaid.initialize({ startOnLoad: false });
+          const svgId = "mermaid-physics-chart";
+          mermaid
+            .render(svgId, data.structuredData.mermaid)
+            .then(({ svg }) => {
+              setFlowchartData({
+                svg,
+                description: data.structuredData.description || "",
+              });
+            })
+            .catch(() => {
+              setFlowchartData({
+                svg: "<div style='color:red'>Invalid Mermaid code</div>",
+                description: "",
+              });
+            });
+        } else {
+          setFlowchartData({
+            svg: "<div style='color:red'>No flowchart generated</div>",
+            description: "",
+          });
+        }
+      } else if (mode === "chat") {
+        const res = await fetch("http://localhost:3000/physics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: userPrompt }),
+        });
+        const data = await res.json();
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "bot", text: data.response || "No response." },
+        ]);
       }
     } catch (err) {
-      setMessages(prev => [...prev, { 
-        sender: "bot", 
-        text: `Error: ${err.message}`
-      }]);
-    } finally {
-      setIsLoading(false);
+      if (mode === "flowchart") {
+        setFlowchartData({
+          svg: "<div style='color:red'>Failed to load flowchart</div>",
+          description: "",
+        });
+      } else {
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "bot", text: "Error: " + err.message },
+        ]);
+      }
     }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === "Enter") sendMessage();
+    setUserPrompt("");
+    setLoading(false);
   };
 
   return (
     <>
-      <Navbar/>
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col items-center justify-center py-8">
-        <div className="w-full max-w-2xl bg-gray-800 bg-opacity-95 rounded-2xl shadow-2xl flex flex-col">
-          <div className="px-8 pt-8 pb-2">
-            <h1 className="text-3xl md:text-4xl font-extrabold text-blue-400 mb-2 text-center drop-shadow-lg">Physics Expert Chatbot</h1>
-            <p className="text-gray-300 text-center mb-4">
-              Ask any physics question below to get concise, step-by-step answers with LaTeX rendering and flowchart support.
-            </p>
+      <Navbar />
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          backgroundColor: "#0f0f0f",
+          color: "#e4e4e7",
+          fontFamily: "Inter, sans-serif",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "1rem 1.5rem",
+            borderBottom: "1px solid #333",
+            backgroundColor: "#1e1e20",
+          }}
+        >
+          <h2
+            style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}
+          >
+            🌌 Physics Assistant
+          </h2>
+          <div
+            style={{
+              display: "flex",
+              background: "#2a2a2e",
+              borderRadius: "0.5rem",
+              overflow: "hidden",
+            }}
+          >
+            <button
+              onClick={() => setMode("chat")}
+              disabled={loading}
+              style={{
+                padding: "0.5rem 1rem",
+                background: mode === "chat" ? "#2563eb" : "transparent",
+                color: mode === "chat" ? "#fff" : "#aaa",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+              }}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setMode("flowchart")}
+              disabled={loading}
+              style={{
+                padding: "0.5rem 1rem",
+                background: mode === "flowchart" ? "#2563eb" : "transparent",
+                color: mode === "flowchart" ? "#fff" : "#aaa",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "600",
+              }}
+            >
+              Flowchart
+            </button>
           </div>
-          <div className="flex-1 px-6 pb-6 overflow-y-auto h-96">
-            {messages.map((msg, index) => (
+        </div>
+
+        {/* Scrollable Chat/Flowchart */}
+        <div
+          ref={containerRef}
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "1rem 1.5rem",
+          }}
+        >
+          {mode === "chat" && chatMessages.length === 0 && (
+            <p
+              style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}
+            >
+              Start a conversation by asking a physics question.
+            </p>
+          )}
+          {mode === "chat" &&
+            chatMessages.map((msg, idx) => (
               <div
-                key={index}
-                className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"} mb-4`}
+                key={idx}
+                style={{
+                  display: "flex",
+                  justifyContent:
+                    msg.role === "user" ? "flex-end" : "flex-start",
+                  margin: "0.5rem 0",
+                }}
               >
                 <div
-                  className={`max-w-[70%] rounded-xl p-4 text-base break-words shadow-md ${
-                    msg.sender === "user" 
-                      ? "bg-blue-600 text-white rounded-br-none" 
-                      : "bg-gray-700 text-gray-100 rounded-bl-none"
-                  }`}
+                  style={{
+                    background: msg.role === "user" ? "#2563eb" : "#2c2c35",
+                    color: "#fff",
+                    borderRadius: "1rem",
+                    padding: "0.75rem 1rem",
+                    maxWidth: "75%",
+                    fontSize: "1rem",
+                  }}
                 >
                   <div className="[&>.katex]:text-inherit">
                     {renderWithLatex(msg.text)}
                   </div>
-                  {msg.flowchart && renderFlowchart(msg.flowchart)}
                 </div>
               </div>
             ))}
-            {isLoading && (
-              <div className="flex justify-start mb-4">
-                <div className="bg-gray-700 text-gray-100 rounded-xl p-4 rounded-bl-none shadow-md">
-                  <div className="flex items-center gap-1">
-                    <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce" />
-                    <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce delay-100" />
-                    <div className="h-2 w-2 bg-blue-400 rounded-full animate-bounce delay-200" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="border-t border-gray-700 p-6 bg-gray-800 rounded-b-2xl">
-            <div className="flex gap-2">
-              <input
-                className="flex-1 border border-gray-600 bg-gray-900 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
-                type="text"
-                placeholder="Ask about physics, maths, or chemistry..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                disabled={isLoading}
-              />
-              <button
-                onClick={() => setIsFlowchartMode(!isFlowchartMode)}
-                className={`px-4 py-3 rounded-lg text-white font-semibold shadow-md transition duration-200 ${
-                  isFlowchartMode 
-                    ? "bg-orange-500 hover:bg-orange-600" 
-                    : "bg-gray-600 hover:bg-gray-700"
-                }`}
-                title={isFlowchartMode ? "Switch to Text Mode" : "Switch to Flowchart Mode"}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                </svg>
-              </button>
-              <button
-                className={`px-6 py-3 rounded-lg text-white font-semibold shadow-md transition duration-200 ${
-                  isLoading 
-                    ? "bg-gray-500 cursor-not-allowed" 
-                    : "bg-blue-600 hover:bg-blue-700"
-                }`}
-                onClick={sendMessage}
-                disabled={isLoading}
-              >
-                Send
-              </button>
+          {mode === "flowchart" && flowchartData && (
+            <div style={{ color: "#fff" }}>
+              <div dangerouslySetInnerHTML={{ __html: flowchartData.svg }} />
+              {flowchartData.description && (
+                <p style={{ marginTop: "1rem", color: "#aaa" }}>
+                  <strong>Description:</strong> {flowchartData.description}
+                </p>
+              )}
             </div>
-          </div>
+          )}
+          {loading && (
+            <p
+              style={{
+                textAlign: "center",
+                color: "#60a5fa",
+                marginTop: "1rem",
+              }}
+            >
+              {mode === "flowchart"
+                ? "Generating flowchart..."
+                : "Solving physics problem..."}
+            </p>
+          )}
         </div>
-        <footer className="mt-8 text-gray-500 text-sm">&copy; {new Date().getFullYear()} LearnSphere. All rights reserved.</footer>
+
+        {/* Input */}
+        {/* Fixed Input at Bottom */}
+        <form
+          onSubmit={handleGenerate}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "1rem",
+            padding: "1rem",
+            borderTop: "1px solid #333",
+            background: "#1a1a1c",
+            position: "sticky",
+            bottom: 0,
+            zIndex: 10,
+          }}
+        >
+          <textarea
+            value={userPrompt}
+            onChange={(e) => setUserPrompt(e.target.value)}
+            rows={1}
+            placeholder={
+              mode === "flowchart"
+                ? "Describe physics concept for flowchart..."
+                : "Ask a physics question (use $...$ for equations)..."
+            }
+            style={{
+              flex: 1,
+              resize: "none",
+              background: "#121212",
+              border: "1px solid #333",
+              borderRadius: "0.5rem",
+              padding: "0.75rem 1rem",
+              color: "#fff",
+              fontSize: "1rem",
+            }}
+            disabled={loading}
+            required
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              background: "#2563eb",
+              color: "#fff",
+              border: "none",
+              padding: "0.75rem 1.5rem",
+              fontSize: "1rem",
+              borderRadius: "0.5rem",
+              fontWeight: "bold",
+              cursor: loading ? "not-allowed" : "pointer",
+            }}
+          >
+            {loading ? "..." : "Send"}
+          </button>
+        </form>
       </div>
     </>
   );
 };
-export default ChatBot;
+
+export default Physics;
