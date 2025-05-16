@@ -1,10 +1,12 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from 'react';
 import mermaid from "mermaid";
-import Navbar from "./Navbar";
+import { InlineMath, BlockMath } from "react-katex";
+import 'katex/dist/katex.min.css';
+import Navbar from './Navbar';
 
 const Maths = () => {
   const containerRef = useRef(null);
-  const [userPrompt, setUserPrompt] = useState("");
+  const [userPrompt, setUserPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("chat");
   const [chatMessages, setChatMessages] = useState([]);
@@ -25,114 +27,116 @@ const Maths = () => {
     setLoading(true);
 
     if (mode === "chat") {
-      setChatMessages((prev) => [...prev, { role: "user", text: userPrompt }]);
+      setChatMessages(prev => [...prev, { role: "user", text: userPrompt }]);
     }
     setFlowchartData(null);
 
     try {
       if (mode === "flowchart") {
-        const res = await fetch("http://localhost:3000/generate-flowchart", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const res = await fetch('http://localhost:3000/generate-flowchart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ subject, content: userPrompt }),
         });
         const data = await res.json();
         if (data.structuredData && data.structuredData.mermaid) {
           mermaid.initialize({ startOnLoad: false });
           const svgId = "mermaid-chart";
-          mermaid
-            .render(svgId, data.structuredData.mermaid)
-            .then(({ svg }) => {
-              setFlowchartData({
-                svg,
-                description: data.structuredData.description || "",
-              });
-            })
-            .catch(() => {
-              setFlowchartData({
-                svg: "<div style='color:red'>Invalid Mermaid code</div>",
-                description: "",
-              });
+          mermaid.render(svgId, data.structuredData.mermaid).then(({ svg }) => {
+            setFlowchartData({
+              svg,
+              description: data.structuredData.description || ''
             });
+          }).catch(() => {
+            setFlowchartData({
+              svg: "<div style='color:red'>Invalid Mermaid code</div>",
+              description: ''
+            });
+          });
         } else {
           setFlowchartData({
             svg: "<div style='color:red'>No flowchart generated</div>",
-            description: "",
+            description: ''
           });
         }
       } else if (mode === "chat") {
-        const res = await fetch("http://localhost:3000/maths", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const token = localStorage.getItem("token");
+        if (!token) {
+          throw new Error("Please log in to use the chat feature");
+        }
+
+        const res = await fetch('http://localhost:3000/maths', {
+          method: 'POST',
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify({ query: userPrompt }),
         });
         const data = await res.json();
-        setChatMessages((prev) => [
+        setChatMessages(prev => [
           ...prev,
-          { role: "bot", text: data.response || "No response." },
+          { role: "bot", text: data.response || "No response." }
         ]);
       }
     } catch (err) {
       if (mode === "flowchart") {
         setFlowchartData({
           svg: "<div style='color:red'>Failed to load flowchart</div>",
-          description: "",
+          description: ''
         });
       } else {
-        setChatMessages((prev) => [
+        setChatMessages(prev => [
           ...prev,
-          { role: "bot", text: "Error: " + err.message },
+          { role: "bot", text: "Error: " + err.message }
         ]);
       }
     }
-    setUserPrompt("");
+    setUserPrompt('');
     setLoading(false);
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleGenerate(e);
-    }
+  const renderWithLatex = (text) => {
+    const segments = text.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
+    return segments.map((segment, index) => {
+      if (segment.startsWith("$$") && segment.endsWith("$$")) {
+        return <BlockMath key={index} math={segment.slice(2, -2).trim()} errorColor="#cc0000" />;
+      } else if (segment.startsWith("$") && segment.endsWith("$")) {
+        return <InlineMath key={index} math={segment.slice(1, -1).trim()} errorColor="#cc0000" />;
+      }
+      return <span key={index}>{segment}</span>;
+    });
   };
 
   return (
     <>
       <Navbar />
-      <div
-        style={{
-          height: "100vh",
-          display: "flex",
-          flexDirection: "column",
-          backgroundColor: "#0f0f0f",
-          color: "#e4e4e7",
-          fontFamily: "Inter, sans-serif",
-        }}
-      >
+      <div style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: "#0f0f0f",
+        color: "#e4e4e7",
+        fontFamily: "Inter, sans-serif"
+      }}>
         {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "1rem 1.5rem",
-            borderBottom: "1px solid #333",
-            backgroundColor: "#1e1e20",
-          }}
-        >
-          <h2
-            style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}
-          >
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "1rem 1.5rem",
+          borderBottom: "1px solid #333",
+          backgroundColor: "#1e1e20",
+        }}>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}>
             📚 Mathematics Assistant
           </h2>
-          <div
-            style={{
-              display: "flex",
-              background: "#2a2a2e",
-              borderRadius: "0.5rem",
-              overflow: "hidden",
-            }}
-          >
+          <div style={{
+            display: "flex",
+            background: "#2a2a2e",
+            borderRadius: "0.5rem",
+            overflow: "hidden"
+          }}>
             <button
               onClick={() => setMode("chat")}
               disabled={loading}
@@ -142,7 +146,7 @@ const Maths = () => {
                 color: mode === "chat" ? "#fff" : "#aaa",
                 border: "none",
                 cursor: "pointer",
-                fontWeight: "600",
+                fontWeight: "600"
               }}
             >
               Chat
@@ -156,7 +160,7 @@ const Maths = () => {
                 color: mode === "flowchart" ? "#fff" : "#aaa",
                 border: "none",
                 cursor: "pointer",
-                fontWeight: "600",
+                fontWeight: "600"
               }}
             >
               Flowchart
@@ -174,37 +178,38 @@ const Maths = () => {
           }}
         >
           {mode === "chat" && chatMessages.length === 0 && (
-            <p
-              style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}
-            >
+            <p style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}>
               Start a conversation by asking a mathematics question.
             </p>
           )}
-          {mode === "chat" &&
-            chatMessages.map((msg, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: "flex",
-                  justifyContent:
-                    msg.role === "user" ? "flex-end" : "flex-start",
-                  margin: "0.5rem 0",
-                }}
-              >
-                <div
-                  style={{
-                    background: msg.role === "user" ? "#2563eb" : "#2c2c35",
-                    color: "#fff",
-                    borderRadius: "1rem",
-                    padding: "0.75rem 1rem",
-                    maxWidth: "75%",
-                    fontSize: "1rem",
-                  }}
-                >
-                  {msg.text}
+          {mode === "chat" && chatMessages.map((msg, idx) => (
+            <div key={idx} style={{
+              display: "flex",
+              justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+              margin: "0.5rem 0"
+            }}>
+              <div style={{
+                background: msg.role === "user" ? "#2563eb" : "#2c2c35",
+                color: "#fff",
+                borderRadius: "1rem",
+                padding: "0.75rem 1rem",
+                maxWidth: "75%",
+                fontSize: "1rem"
+              }}>
+                <div style={{ 
+                  '& .katex': { 
+                    color: 'inherit',
+                    fontSize: '1.1em'
+                  },
+                  '& .katex-display': {
+                    margin: '1em 0'
+                  }
+                }}>
+                  {renderWithLatex(msg.text)}
                 </div>
               </div>
-            ))}
+            </div>
+          ))}
           {mode === "flowchart" && flowchartData && (
             <div style={{ color: "#fff" }}>
               <div dangerouslySetInnerHTML={{ __html: flowchartData.svg }} />
@@ -216,16 +221,8 @@ const Maths = () => {
             </div>
           )}
           {loading && (
-            <p
-              style={{
-                textAlign: "center",
-                color: "#60a5fa",
-                marginTop: "1rem",
-              }}
-            >
-              {mode === "flowchart"
-                ? "Generating flowchart..."
-                : "Getting answer..."}
+            <p style={{ textAlign: "center", color: "#60a5fa", marginTop: "1rem" }}>
+              {mode === "flowchart" ? "Generating flowchart..." : "Getting answer..."}
             </p>
           )}
         </div>
@@ -242,19 +239,14 @@ const Maths = () => {
             background: "#1a1a1c",
             position: "sticky",
             bottom: 0,
-            zIndex: 10,
+            zIndex: 10
           }}
         >
           <textarea
             value={userPrompt}
-            onChange={(e) => setUserPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onChange={e => setUserPrompt(e.target.value)}
             rows={1}
-            placeholder={
-              mode === "flowchart"
-                ? "Describe topic for flowchart..."
-                : "Ask a maths question..."
-            }
+            placeholder={mode === "flowchart" ? "Describe topic for flowchart..." : "Ask a maths question..."}
             style={{
               flex: 1,
               resize: "none",
@@ -263,7 +255,7 @@ const Maths = () => {
               borderRadius: "0.5rem",
               padding: "0.75rem 1rem",
               color: "#fff",
-              fontSize: "1rem",
+              fontSize: "1rem"
             }}
             disabled={loading}
             required
@@ -279,7 +271,7 @@ const Maths = () => {
               fontSize: "1rem",
               borderRadius: "0.5rem",
               fontWeight: "bold",
-              cursor: loading ? "not-allowed" : "pointer",
+              cursor: loading ? "not-allowed" : "pointer"
             }}
           >
             {loading ? "..." : "Send"}
