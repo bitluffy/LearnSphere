@@ -13,7 +13,7 @@ import {
 import { RiMentalHealthLine } from "react-icons/ri";
 import Navbar from "./Navbar";
 
-// Initial profile with empty name and email (will be filled from MongoDB)
+// Initial profile with empty values (will be filled from MongoDB)
 const initialProfile = {
   name: "",
   email: "",
@@ -21,13 +21,7 @@ const initialProfile = {
   institution: "",
   year: "",
   branch: "",
-  learningStyle: "Visual",
-  interests: [],
-  badges: [
-    { title: "Calculus Sensei", icon: "📐" },
-    { title: "Bond Master", icon: "🧪" },
-    { title: "Physics Pro", icon: "⚡" },
-  ],
+  badges: [],
   progress: {
     physics: 0,
     chemistry: 0,
@@ -63,29 +57,11 @@ export default function ProfilePage() {
           throw new Error("Failed to fetch user data");
         }
         const userData = await response.json();
-        setProfile((prev) => ({
-          ...prev,
-          name: userData.username || "",
-          email: userData.email || "",
-        }));
-        setEditedProfile((prev) => ({
-          ...prev,
-          name: userData.username || "",
-          email: userData.email || "",
-        }));
+        setProfile(userData);
+        setEditedProfile(userData);
       } catch (err) {
         console.error("Error fetching user data:", err);
         setError("Failed to load profile data. Please try again later.");
-        setProfile({
-          ...initialProfile,
-          name: "Alex Johnson",
-          email: "alex.johnson@example.com",
-        });
-        setEditedProfile({
-          ...initialProfile,
-          name: "Alex Johnson",
-          email: "alex.johnson@example.com",
-        });
       } finally {
         setLoading(false);
       }
@@ -105,11 +81,6 @@ export default function ProfilePage() {
   const handleSaveProfile = async () => {
     try {
       setLoading(true);
-      const dataToUpdate = {
-        ...editedProfile,
-        name: profile.name,
-        email: profile.email,
-      };
       const token = localStorage.getItem("token");
       const response = await fetch("http://localhost:3000/api/user/profile", {
         method: "PUT",
@@ -117,12 +88,18 @@ export default function ProfilePage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(dataToUpdate),
+        body: JSON.stringify({
+          pronouns: editedProfile.pronouns,
+          institution: editedProfile.institution,
+          year: editedProfile.year,
+          branch: editedProfile.branch,
+        }),
       });
       if (!response.ok) {
         throw new Error("Failed to update profile");
       }
-      setProfile(dataToUpdate);
+      const updatedUser = await response.json();
+      setProfile(updatedUser);
       setEditing(false);
     } catch (err) {
       console.error("Error updating profile:", err);
@@ -211,21 +188,6 @@ export default function ProfilePage() {
               {/* Left Column - Avatar and Basic Info */}
               <div className="md:col-span-1">
                 <div className="flex flex-col items-center p-6 bg-white/5 rounded-xl backdrop-blur-sm hover:scale-105 transition-transform">
-                  <div className="relative">
-                    <img
-                      src={`https://api.dicebear.com/7.x/lorelei/svg?seed=${
-                        typeof profile.name === "string"
-                          ? profile.name.split(" ")[0]
-                          : "User"
-                      }`}
-                      alt="avatar"
-                      className="w-32 h-32 rounded-full border-4 border-indigo-300/50 shadow-lg mb-4"
-                    />
-                    <div className="absolute -bottom-2 -right-2 bg-indigo-600 text-white p-2 rounded-full shadow-lg">
-                      <FiUser size={20} />
-                    </div>
-                  </div>
-
                   <h2 className="text-2xl font-bold text-white mb-1">
                     {typeof profile.name === "string" ? profile.name : "User"}
                   </h2>
@@ -340,23 +302,6 @@ export default function ProfilePage() {
                           placeholder="Your field of study"
                         />
                       </div>
-                      <div>
-                        <label className="block text-indigo-200 text-sm font-medium mb-1">
-                          Learning Style
-                        </label>
-                        <select
-                          name="learningStyle"
-                          value={editedProfile.learningStyle || "Visual"}
-                          onChange={handleInputChange}
-                          className="w-full bg-white/10 border border-indigo-300/30 rounded-lg px-3 py-2 text-white"
-                        >
-                          {learningStyles.map((style) => (
-                            <option key={style} value={style}>
-                              {style}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -381,67 +326,12 @@ export default function ProfilePage() {
                       <div className="flex items-start">
                         <FiBook className="text-indigo-300 mt-1 mr-2" />
                         <div>
-                          <p className="text-indigo-200 text-sm">
-                            Branch/Major
-                          </p>
+                          <p className="text-indigo-200 text-sm">Branch/Major</p>
                           <p className="text-white font-medium">
                             {profile.branch || "Not specified"}
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-start">
-                        <RiMentalHealthLine className="text-indigo-300 mt-1 mr-2" />
-                        <div>
-                          <p className="text-indigo-200 text-sm">
-                            Learning Style
-                          </p>
-                          <p className="text-white font-medium">
-                            {profile.learningStyle || "Visual"}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Interests */}
-                <div className="p-6 bg-white/5 rounded-xl backdrop-blur-sm transition-transform duration-300">
-                  <h3 className="text-xl font-semibold text-white mb-4">
-                    Interests
-                  </h3>
-                  {editing ? (
-                    <div className="flex flex-wrap gap-2">
-                      {interestOptions.map((interest) => (
-                        <button
-                          key={interest}
-                          type="button"
-                          onClick={() => handleInterestToggle(interest)}
-                          className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                            (editedProfile.interests || []).includes(interest)
-                              ? "bg-indigo-600 text-white"
-                              : "bg-white/10 text-indigo-200 hover:bg-white/20"
-                          }`}
-                        >
-                          {interest}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {(profile.interests || []).length > 0 ? (
-                        profile.interests.map((subject) => (
-                          <span
-                            key={subject}
-                            className="inline-block bg-indigo-600/30 text-indigo-100 rounded-full px-4 py-2 text-sm font-medium border border-indigo-500/30"
-                          >
-                            {subject}
-                          </span>
-                        ))
-                      ) : (
-                        <p className="text-indigo-200">
-                          No interests specified
-                        </p>
-                      )}
                     </div>
                   )}
                 </div>
@@ -452,8 +342,9 @@ export default function ProfilePage() {
                     Learning Progress
                   </h3>
                   <div className="space-y-4">
-                    {Object.entries(profile.progress || {}).map(
-                      ([subject, percent]) => (
+                    {Object.entries(profile.progress || {})
+                      .filter(([key]) => key !== '_id')
+                      .map(([subject, percent]) => (
                         <div key={subject}>
                           <div className="flex justify-between text-sm mb-1">
                             <span className="capitalize text-indigo-200">
@@ -470,8 +361,7 @@ export default function ProfilePage() {
                             />
                           </div>
                         </div>
-                      )
-                    )}
+                      ))}
                   </div>
                 </div>
               </div>

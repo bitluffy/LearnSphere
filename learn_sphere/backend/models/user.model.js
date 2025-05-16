@@ -15,6 +15,32 @@ const promptSchema = new mongoose.Schema({
     }
 });
 
+const badgeSchema = new mongoose.Schema({
+    title: {
+        type: String,
+        required: true
+    },
+    icon: {
+        type: String,
+        required: true
+    }
+});
+
+const progressSchema = new mongoose.Schema({
+    physics: {
+        type: Number,
+        default: 0
+    },
+    chemistry: {
+        type: Number,
+        default: 0
+    },
+    maths: {
+        type: Number,
+        default: 0
+    }
+});
+
 const userSchema = new mongoose.Schema({
     username: {
         type: String,
@@ -30,7 +56,39 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    prompts: [promptSchema] // <-- Store prompt history here
+    pronouns: {
+        type: String,
+        default: ""
+    },
+    institution: {
+        type: String,
+        default: ""
+    },
+    year: {
+        type: String,
+        default: ""
+    },
+    branch: {
+        type: String,
+        default: ""
+    },
+    badges: {
+        type: [badgeSchema],
+        default: [
+            { title: "Calculus Sensei", icon: "📐" },
+            { title: "Bond Master", icon: "🧪" },
+            { title: "Physics Pro", icon: "⚡" }
+        ]
+    },
+    progress: {
+        type: progressSchema,
+        default: {
+            physics: 0,
+            chemistry: 0,
+            maths: 0
+        }
+    },
+    prompts: [promptSchema]
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);

@@ -142,6 +142,32 @@ app.get("/api/user/profile", verifyToken, async (req, res) => {
   }
 });
 
+app.put("/api/user/profile", verifyToken, async (req, res) => {
+  try {
+    const { pronouns, institution, year, branch } = req.body;
+    
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Update only the fields that are provided
+    if (pronouns !== undefined) user.pronouns = pronouns;
+    if (institution !== undefined) user.institution = institution;
+    if (year !== undefined) user.year = year;
+    if (branch !== undefined) user.branch = branch;
+
+    await user.save();
+    
+    // Return updated user without password
+    const updatedUser = await User.findById(req.user.id).select("-password");
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Profile update error:", error);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+});
+
 
 // --- Physics Chatbot ---
 const handlePhysicsQuery = async (query) => {
