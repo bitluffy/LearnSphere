@@ -9,6 +9,8 @@ import Signup from "./pages/Signup";
 import Chemistry from "./pages/Chemistry";
 import Navbar from "./pages/Navbar";
 import ProfilePage from "./pages/ProfilePage";
+import Assessment from "./pages/Assessment";
+
 const App = () => {
   return (
     <Routes>
@@ -21,6 +23,7 @@ const App = () => {
       <Route path="/Chemistry" element={<Chemistry />} />
       <Route path="/Navbar" element={<Navbar />} />
       <Route path="/ProfilePage" element={<ProfilePage />} />
+      <Route path="/assessment" element={<Assessment />} />
     </Routes>
   );
 };

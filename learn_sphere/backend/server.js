@@ -599,6 +599,296 @@ function generateFlowchartHTML(data) {
   return html;
 }
 
+// --- Quiz Generation and Submission ---
+app.post("/api/generate-quiz", verifyToken, async (req, res) => {
+  try {
+    const { subject } = req.body;
+    console.log("Generating quiz for subject:", subject);
+    
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      console.log("User not found:", req.user.id);
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Get user's previous queries for the selected subject
+    const userQueries = user.queries.filter(q => q.subject === subject);
+    console.log("Found user queries:", userQueries.length);
+    
+    // Subject-specific system prompts
+    const subjectPrompts = {
+      physics: `You are a Physics expert specializing in first-year B.Tech curriculum in India. Focus on:
+1. Engineering Physics topics from AICTE curriculum
+2. Core concepts like Mechanics, Waves, Optics, and Modern Physics
+3. Practical applications in engineering
+4. Common problems from standard textbooks like H.C. Verma and I.E. Irodov
+5. JEE/NEET level questions adapted for B.Tech
+6. Real-world engineering applications
+7. Laboratory experiments and their theoretical basis`,
+      
+      chemistry: `You are a Chemistry expert specializing in first-year B.Tech curriculum in India. Focus on:
+1. Engineering Chemistry topics from AICTE curriculum
+2. Physical Chemistry: Thermodynamics, Chemical Kinetics
+3. Organic Chemistry: Basic reactions and mechanisms
+4. Inorganic Chemistry: Coordination compounds
+5. Industrial applications and processes
+6. Environmental chemistry and green technology
+7. Materials science and nanotechnology
+8. Common problems from standard textbooks like P. Bahadur`,
+      
+      maths: `You are a Mathematics expert specializing in first-year B.Tech curriculum in India. Focus on:
+1. Engineering Mathematics topics from AICTE curriculum
+2. Calculus: Limits, Continuity, Differentiation, Integration
+3. Linear Algebra: Matrices, Determinants, Vector Spaces
+4. Differential Equations
+5. Complex Analysis
+6. Numerical Methods
+7. Probability and Statistics
+8. Common problems from standard textbooks like B.S. Grewal`
+    };
+
+    if (!subjectPrompts[subject]) {
+      console.log("Invalid subject:", subject);
+      return res.status(400).json({ error: "Invalid subject" });
+    }
+    
+    console.log("Making request to GROQ API...");
+    try {
+      // Generate quiz using GROQ API
+      const response = await axios.post(
+        GROQ_API_URL,
+        {
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            {
+              role: "system",
+              content: `${subjectPrompts[subject]}
+
+Create a quiz based on the user's previous queries.
+Return ONLY a JSON object with the following structure, no markdown formatting or additional text:
+{
+  "id": "unique-quiz-id",
+  "questions": [
+    {
+      "id": "question-1",
+      "text": "Question text (use $...$ for inline math and $$...$$ for block math)",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correctAnswer": "Option 1",
+      "explanation": "Detailed explanation of why this is the correct answer, including relevant formulas and concepts from B.Tech curriculum"
+    }
+  ]
+}
+
+Guidelines:
+1. Create 10 questions based on the user's previous queries
+2. Each question should have 4 options
+3. Use LaTeX for all mathematical expressions
+4. Make questions challenging but fair for first-year B.Tech students
+5. Include a mix of:
+   - Theoretical concepts
+   - Problem-solving questions
+   - Engineering applications
+   - Laboratory-based questions
+6. Ensure correct answers are marked
+7. Format all math expressions using $...$ for inline and $$...$$ for block equations
+8. Provide detailed explanations for each correct answer, including:
+   - Relevant formulas
+   - Step-by-step solutions
+   - Engineering applications
+   - Common misconceptions
+   - Tips for similar problems`,
+            },
+            {
+              role: "user",
+              content: `Generate a quiz based on these previous queries:\n${JSON.stringify(userQueries)}`,
+            },
+          ],
+          temperature: 0.3,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      console.log("Received response from GROQ API");
+      // Clean the response content by removing any markdown formatting
+      const content = response.data.choices[0].message.content;
+      console.log("Raw content:", content);
+      
+      const cleanedContent = content.replace(/```json\n?|\n?```/g, '').trim();
+      console.log("Cleaned content:", cleanedContent);
+      
+      try {
+        const quizData = JSON.parse(cleanedContent);
+        console.log("Successfully parsed quiz data");
+        res.json({ quiz: quizData });
+      } catch (parseError) {
+        console.error("JSON Parse Error:", parseError);
+        console.error("Cleaned Content:", cleanedContent);
+        res.status(500).json({ 
+          error: "Failed to parse quiz data",
+          details: parseError.message,
+          content: cleanedContent
+        });
+      }
+    } catch (apiError) {
+      console.error("GROQ API Error:", apiError.response?.data);
+      
+      // Handle rate limit error specifically
+      if (apiError.response?.status === 429) {
+        const retryAfter = apiError.response.headers['retry-after'] || '5';
+        const errorMessage = apiError.response.data?.error?.message || 'Rate limit exceeded';
+        return res.status(429).json({
+          error: "Rate limit exceeded",
+          message: "We've reached our API limit. Please try again later.",
+          retryAfter: parseInt(retryAfter),
+          details: errorMessage
+        });
+      }
+      
+      // Handle other API errors
+      res.status(500).json({ 
+        error: "Failed to generate quiz",
+        message: "There was an error generating your quiz. Please try again later.",
+        details: apiError.message
+      });
+    }
+  } catch (error) {
+    console.error("Quiz generation error:", error);
+    res.status(500).json({ 
+      error: "Failed to generate quiz",
+      message: "An unexpected error occurred. Please try again later.",
+      details: error.message
+    });
+  }
+});
+
+app.post("/api/submit-quiz", verifyToken, async (req, res) => {
+  try {
+    const { subject, answers, quizId } = req.body;
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Subject-specific evaluation prompts
+    const evaluationPrompts = {
+      physics: `You are a Physics professor specializing in first-year B.Tech curriculum in India. Evaluate answers considering:
+1. First-year Engineering Physics concepts
+2. Basic understanding of mechanics, waves, and optics
+3. Simple applications of physics in engineering
+4. Common misconceptions among first-year students
+5. Step-by-step problem-solving approach
+6. Basic laboratory concepts
+7. Simple mathematical derivations`,
+      
+      chemistry: `You are a Chemistry professor specializing in first-year B.Tech curriculum in India. Evaluate answers considering:
+1. First-year Engineering Chemistry concepts
+2. Basic understanding of physical and organic chemistry
+3. Simple chemical reactions and mechanisms
+4. Common misconceptions among first-year students
+5. Basic laboratory safety and procedures
+6. Simple industrial applications
+7. Basic material science concepts`,
+      
+      maths: `You are a Mathematics professor specializing in first-year B.Tech curriculum in India. Evaluate answers considering:
+1. First-year Engineering Mathematics concepts
+2. Basic calculus and differentiation
+3. Simple matrix operations
+4. Common misconceptions among first-year students
+5. Step-by-step problem-solving approach
+6. Basic numerical methods
+7. Simple applications in engineering`
+    };
+
+    // Get the original quiz to check answers
+    const response = await axios.post(
+      GROQ_API_URL,
+      {
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `${evaluationPrompts[subject]}
+
+Evaluate the user's answers against the correct answers.
+Return ONLY a JSON object with the following structure, no markdown formatting or additional text:
+{
+  "score": percentage_correct,
+  "feedback": "Overall feedback on performance, focusing on first-year B.Tech level understanding",
+  "questionResults": [
+    {
+      "questionId": "question-1",
+      "isCorrect": true/false,
+      "userAnswer": "user's answer",
+      "correctAnswer": "correct answer",
+      "explanation": "Detailed explanation suitable for first-year B.Tech students, including:
+        - Basic concepts involved
+        - Step-by-step solution
+        - Common mistakes to avoid
+        - Simple applications in engineering
+        - Tips for similar problems"
+    }
+  ]
+}
+
+Guidelines for evaluation:
+1. Focus on first-year B.Tech level understanding
+2. Provide clear, step-by-step explanations
+3. Highlight common misconceptions
+4. Include simple engineering applications
+5. Give constructive feedback
+6. Suggest basic study resources
+7. Emphasize fundamental concepts`,
+          },
+          {
+            role: "user",
+            content: `Quiz ID: ${quizId}\nUser Answers: ${JSON.stringify(answers)}`,
+          },
+        ],
+        temperature: 0.3,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // Clean the response content by removing any markdown formatting
+    const content = response.data.choices[0].message.content;
+    const cleanedContent = content.replace(/```json\n?|\n?```/g, '').trim();
+    
+    try {
+      const evaluation = JSON.parse(cleanedContent);
+      
+      // Update user's progress
+      const currentProgress = user.progress[subject] || 0;
+      const newProgress = Math.min(100, currentProgress + evaluation.score);
+      
+      await User.findByIdAndUpdate(req.user.id, {
+        $set: {
+          [`progress.${subject}`]: newProgress
+        }
+      });
+
+      res.json(evaluation);
+    } catch (parseError) {
+      console.error("JSON Parse Error:", parseError);
+      console.error("Cleaned Content:", cleanedContent);
+      res.status(500).json({ error: "Failed to parse evaluation data" });
+    }
+  } catch (error) {
+    console.error("Quiz submission error:", error);
+    res.status(500).json({ error: "Failed to submit quiz" });
+  }
+});
+
 // --- Server Start ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
