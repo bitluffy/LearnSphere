@@ -2,11 +2,10 @@ import express from "express";
 import cors from "cors";
 import axios from "axios";
 import dotenv from "dotenv";
-import mongoose from 'mongoose';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import User from './models/user.model.js';
-
+import mongoose from "mongoose";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import User from "./models/user.model.js";
 
 // Configuration
 dotenv.config();
@@ -15,24 +14,24 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-
 
 // --- LaTeX Normalization Utility ---
 function normalizeLatexDelimiters(text) {
   // Convert \[ ... \] and \\[ ... \\] to $$ ... $$
-  text = text.replace(/\\\\?\[(.*?)\\\\?\]/gs, (match, p1) => `$$${p1.trim()}$$`);
+  text = text.replace(
+    /\\\\?\[(.*?)\\\\?\]/gs,
+    (match, p1) => `$$${p1.trim()}$$`
+  );
   // Convert \(...\) and \\(...\\) to $...$
   text = text.replace(/\\\\?\((.*?)\\\\?\)/gs, (match, p1) => `$${p1.trim()}$`);
   // Remove newlines immediately after/before $$
-  text = text.replace(/\$\$\s*\n/g, '$$');
-  text = text.replace(/\n\s*\$\$/g, '$$');
+  text = text.replace(/\$\$\s*\n/g, "$$");
+  text = text.replace(/\n\s*\$\$/g, "$$");
   // Remove duplicate $ or $$ if present
-  text = text.replace(/\${3,}/g, '$$');
+  text = text.replace(/\${3,}/g, "$$");
   return text;
 }
-
 
 // --- Authentication Endpoints ---
 app.post("/api/signup", async (req, res) => {
@@ -40,7 +39,9 @@ app.post("/api/signup", async (req, res) => {
     const { username, email, password } = req.body;
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
-      return res.status(400).json({ error: "User already exists with this email or username" });
+      return res
+        .status(400)
+        .json({ error: "User already exists with this email or username" });
     }
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -49,19 +50,22 @@ app.post("/api/signup", async (req, res) => {
     const token = jwt.sign(
       { id: newUser._id, username: newUser.username },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: "24h" }
     );
     res.status(201).json({
       message: "User created successfully",
       token,
-      user: { id: newUser._id, username: newUser.username, email: newUser.email }
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email,
+      },
     });
   } catch (error) {
     console.error("Signup error:", error);
     res.status(500).json({ error: "Signup failed" });
   }
 });
-
 
 app.post("/api/login", async (req, res) => {
   try {
@@ -77,12 +81,12 @@ app.post("/api/login", async (req, res) => {
     const token = jwt.sign(
       { id: user._id, username: user.username },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: "24h" }
     );
     res.json({
       message: "Login successful",
       token,
-      user: { id: user._id, username: user.username, email: user.email }
+      user: { id: user._id, username: user.username, email: user.email },
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -90,16 +94,16 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-
 // --- JWT Middleware ---
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Unauthorized - No token provided" });
   }
-  const token = authHeader.split(' ')[1];
+  const token = authHeader.split(" ")[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log("Token from localStorage:", token);
     req.user = decoded;
     next();
   } catch (error) {
@@ -107,15 +111,14 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-
 // --- Signout Endpoint ---
 app.post("/api/signout", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.json({ success: true, message: "Successfully signed out" });
     }
-    const token = authHeader.split(' ')[1];
+    const token = authHeader.split(" ")[1];
     try {
       jwt.verify(token, process.env.JWT_SECRET);
     } catch (tokenError) {
@@ -127,7 +130,6 @@ app.post("/api/signout", async (req, res) => {
     res.status(500).json({ error: "Signout failed" });
   }
 });
-
 
 // --- Protected Profile Route ---
 app.get("/api/user/profile", verifyToken, async (req, res) => {
@@ -141,7 +143,6 @@ app.get("/api/user/profile", verifyToken, async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
-
 
 // --- Physics Chatbot ---
 const handlePhysicsQuery = async (query) => {
@@ -159,17 +160,17 @@ const handlePhysicsQuery = async (query) => {
 - No newlines immediately after/before $$.
 - Give brief engineering examples.
 - Always include unit/dimension checks.
-- No paragraphs; keep responses short and clear.`
+- No paragraphs; keep responses short and clear.`,
           },
-          { role: "user", content: query }
+          { role: "user", content: query },
         ],
-        temperature: 0.3
+        temperature: 0.3,
       },
       {
         headers: {
           Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       }
     );
     return response.data.choices[0].message.content;
@@ -178,7 +179,6 @@ const handlePhysicsQuery = async (query) => {
     throw new Error("Physics processing failed: " + error.message);
   }
 };
-
 
 app.post("/physics", async (req, res) => {
   try {
@@ -193,7 +193,6 @@ app.post("/physics", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 // --- Mathematics Chatbot ---
 app.post("/maths", async (req, res) => {
@@ -220,21 +219,22 @@ Example format:
 **Problem:** [statement]
 **Method 1:** [approach]
 **Method 2:** [alternate approach]
-**Real-world Use:** [application]`
+**Real-world Use:** [application]`,
           },
-          { role: "user", content: query }
+          { role: "user", content: query },
         ],
-        temperature: 0.3
+        temperature: 0.3,
       },
       { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
     );
-    const normalizedResponse = normalizeLatexDelimiters(response.data.choices[0].message.content);
+    const normalizedResponse = normalizeLatexDelimiters(
+      response.data.choices[0].message.content
+    );
     res.json({ response: normalizedResponse });
   } catch (error) {
     res.status(500).json({ error: "Math processing failed" });
   }
 });
-
 
 // --- Chemistry Chatbot ---
 app.post("/chemistry", async (req, res) => {
@@ -262,15 +262,17 @@ Example format:
 **Concept:** [topic]
 **Step 1:** [key step]
 **Lab Safety:** [precaution]
-**Industrial Use:** [application]`
+**Industrial Use:** [application]`,
           },
-          { role: "user", content: query }
+          { role: "user", content: query },
         ],
-        temperature: 0.3
+        temperature: 0.3,
       },
       { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
     );
-    const normalizedResponse = normalizeLatexDelimiters(response.data.choices[0].message.content);
+    const normalizedResponse = normalizeLatexDelimiters(
+      response.data.choices[0].message.content
+    );
     res.json({ response: normalizedResponse });
   } catch (error) {
     res.status(500).json({ error: "Chemistry processing failed" });
@@ -282,7 +284,9 @@ app.post("/generate-flowchart", async (req, res) => {
     const { subject, content } = req.body;
 
     if (!subject || !content) {
-      return res.status(400).json({ error: "Subject and content are required" });
+      return res
+        .status(400)
+        .json({ error: "Subject and content are required" });
     }
 
     const systemPrompt = `You are a flowchart expert. Always respond in strict JSON format with the following two keys:
@@ -329,10 +333,12 @@ Do not include any other text, commentary, or formatting outside the JSON. Your 
     let flowchartData;
     try {
       // Replace newlines inside the "mermaid" value with \n for JSON parsing
-      const mermaidMatch = responseText.match(/"mermaid"\s*:\s*"([\s\S]*?)"\s*,/);
+      const mermaidMatch = responseText.match(
+        /"mermaid"\s*:\s*"([\s\S]*?)"\s*,/
+      );
       if (mermaidMatch) {
         const mermaidOriginal = mermaidMatch[1];
-        const mermaidEscaped = mermaidOriginal.replace(/\r?\n/g, '\\n');
+        const mermaidEscaped = mermaidOriginal.replace(/\r?\n/g, "\\n");
         // Replace only the Mermaid value in the JSON string
         const safeJson = responseText.replace(mermaidOriginal, mermaidEscaped);
         flowchartData = JSON.parse(safeJson);
@@ -370,59 +376,61 @@ Do not include any other text, commentary, or formatting outside the JSON. Your 
 
 function generateAsciiFlowchart(data) {
   let ascii = `\n${data.title}\n`;
-  ascii += '='.repeat(data.title.length) + '\n\n';
+  ascii += "=".repeat(data.title.length) + "\n\n";
 
   // Generate nodes
-  data.nodes.forEach(node => {
-    let nodeBox = '';
+  data.nodes.forEach((node) => {
+    let nodeBox = "";
     switch (node.type) {
-      case 'decision':
-        nodeBox = `  ${node.id}  \n` +
-                 ` /     \\ \n` +
-                 `| ${node.label.padEnd(20)} |\n` +
-                 ` \\     / \n`;
+      case "decision":
+        nodeBox =
+          `  ${node.id}  \n` +
+          ` /     \\ \n` +
+          `| ${node.label.padEnd(20)} |\n` +
+          ` \\     / \n`;
         break;
-      case 'start/end':
-        nodeBox = `  ${node.id}  \n` +
-                 `┌${'─'.repeat(22)}┐\n` +
-                 `│ ${node.label.padEnd(20)} │\n` +
-                 `└${'─'.repeat(22)}┘\n`;
+      case "start/end":
+        nodeBox =
+          `  ${node.id}  \n` +
+          `┌${"─".repeat(22)}┐\n` +
+          `│ ${node.label.padEnd(20)} │\n` +
+          `└${"─".repeat(22)}┘\n`;
         break;
       default:
-        nodeBox = `  ${node.id}  \n` +
-                 `┌${'─'.repeat(22)}┐\n` +
-                 `│ ${node.label.padEnd(20)} │\n` +
-                 `└${'─'.repeat(22)}┘\n`;
+        nodeBox =
+          `  ${node.id}  \n` +
+          `┌${"─".repeat(22)}┐\n` +
+          `│ ${node.label.padEnd(20)} │\n` +
+          `└${"─".repeat(22)}┘\n`;
     }
-    ascii += nodeBox + '\n';
+    ascii += nodeBox + "\n";
   });
 
   // Generate connections
-  ascii += '\nConnections:\n';
-  data.connections.forEach(conn => {
+  ascii += "\nConnections:\n";
+  data.connections.forEach((conn) => {
     ascii += `${conn.from} --> ${conn.to}`;
     if (conn.label) {
       ascii += ` : ${conn.label}`;
     }
-    ascii += '\n';
+    ascii += "\n";
   });
 
   return ascii;
 }
 
-
 // --- Flowchart Visualization Endpoint ---
 app.post("/visualize-flowchart", async (req, res) => {
   try {
     const { structuredData } = req.body;
-    
+
     if (!structuredData) {
       return res.status(400).json({ error: "Structured data is required" });
     }
 
     // Generate HTML for the flowchart
     const html = generateFlowchartHTML(structuredData);
-    
+
     res.send(html);
   } catch (error) {
     console.error("Flowchart visualization error:", error);
@@ -432,10 +440,10 @@ app.post("/visualize-flowchart", async (req, res) => {
 
 function generateFlowchartHTML(data) {
   const nodeStyles = {
-    'start': 'background-color: #4CAF50; color: white;',
-    'end': 'background-color: #f44336; color: white;',
-    'process': 'background-color: #2196F3; color: white;',
-    'decision': 'background-color: #FF9800; color: white;'
+    start: "background-color: #4CAF50; color: white;",
+    end: "background-color: #f44336; color: white;",
+    process: "background-color: #2196F3; color: white;",
+    decision: "background-color: #FF9800; color: white;",
   };
 
   let html = `
@@ -499,9 +507,9 @@ function generateFlowchartHTML(data) {
   `;
 
   // Create nodes
-  data.nodes.forEach(node => {
-    const style = nodeStyles[node.type] || nodeStyles['process'];
-    const nodeClass = node.type === 'decision' ? 'node decision' : 'node';
+  data.nodes.forEach((node) => {
+    const style = nodeStyles[node.type] || nodeStyles["process"];
+    const nodeClass = node.type === "decision" ? "node decision" : "node";
     html += `
       <div class="${nodeClass}" style="${style}">
         ${node.label}
@@ -510,10 +518,10 @@ function generateFlowchartHTML(data) {
   });
 
   // Create connections
-  data.connections.forEach(conn => {
+  data.connections.forEach((conn) => {
     html += `
       <div class="connection">
-        ${conn.label ? `<div class="connection-label">${conn.label}</div>` : ''}
+        ${conn.label ? `<div class="connection-label">${conn.label}</div>` : ""}
       </div>
     `;
   });
@@ -533,9 +541,11 @@ app.listen(PORT, () => {
   console.log(`✅ Physics agent running at http://localhost:${PORT}`);
 });
 
-
-mongoose.connect(process.env.MONGO).then(()=>{
-  console.log('Connected to MongoDB')
-}).catch((err)=>{
-  console.log(err)
-});
+mongoose
+  .connect(process.env.MONGO)
+  .then(() => {
+    console.log("Connected to MongoDB");
+  })
+  .catch((err) => {
+    console.log(err);
+  });
