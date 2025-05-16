@@ -89,6 +89,13 @@ const Chemistry = () => {
     setLoading(false);
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleGenerate(e);
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -241,6 +248,7 @@ const Chemistry = () => {
           <textarea
             value={userPrompt}
             onChange={(e) => setUserPrompt(e.target.value)}
+            onKeyDown={handleKeyDown}
             rows={1}
             placeholder={
               mode === "flowchart"

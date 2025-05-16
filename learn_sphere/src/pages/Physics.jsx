@@ -81,9 +81,9 @@ const Physics = () => {
 
         const res = await fetch("http://localhost:3000/physics", {
           method: "POST",
-          headers: { 
+          headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ query: userPrompt }),
         });
@@ -108,6 +108,13 @@ const Physics = () => {
     }
     setUserPrompt("");
     setLoading(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleGenerate(e);
+    }
   };
 
   return (
@@ -265,6 +272,7 @@ const Physics = () => {
           <textarea
             value={userPrompt}
             onChange={(e) => setUserPrompt(e.target.value)}
+            onKeyDown={handleKeyDown}
             rows={1}
             placeholder={
               mode === "flowchart"
