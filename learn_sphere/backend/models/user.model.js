@@ -158,10 +158,10 @@ const userSchema = new mongoose.Schema(
         maths: 0,
       },
     },
-    prompts: {
-      type: [promptSchema],
-      default: [],
-    },
+    // prompts: {
+    //   type: [promptSchema],
+    //   default: [],
+    // },
     queries: {
       type: [querySchema],
       default: [],

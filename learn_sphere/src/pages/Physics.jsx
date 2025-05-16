@@ -74,9 +74,17 @@ const Physics = () => {
           });
         }
       } else if (mode === "chat") {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          throw new Error("Please log in to use the chat feature");
+        }
+
         const res = await fetch("http://localhost:3000/physics", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify({ query: userPrompt }),
         });
         const data = await res.json();

@@ -172,7 +172,7 @@ app.put("/api/user/profile", verifyToken, async (req, res) => {
 
 
 // --- Physics Chatbot ---
-const handlePhysicsQuery = async (query) => {
+const handlePhysicsQuery = async (query, userId) => {
   try {
     const response = await axios.post(
       GROQ_API_URL,
@@ -200,20 +200,35 @@ const handlePhysicsQuery = async (query) => {
         },
       }
     );
-    return response.data.choices[0].message.content;
+    const solution = response.data.choices[0].message.content;
+
+    // Store the query and solution in the user's database
+    if (userId) {
+      await User.findByIdAndUpdate(userId, {
+        $push: {
+          queries: {
+            query,
+            solution,
+            subject: "physics"
+          }
+        }
+      });
+    }
+
+    return solution;
   } catch (error) {
     console.error("Groq API Error:", error.response?.data);
     throw new Error("Physics processing failed: " + error.message);
   }
 };
 
-app.post("/physics", async (req, res) => {
+app.post("/physics", verifyToken, async (req, res) => {
   try {
     const { query } = req.body;
     if (!query) {
       return res.status(400).json({ error: "Missing query parameter" });
     }
-    const response = await handlePhysicsQuery(query);
+    const response = await handlePhysicsQuery(query, req.user.id);
     const normalizedResponse = normalizeLatexDelimiters(response);
     res.json({ response: normalizedResponse });
   } catch (error) {
