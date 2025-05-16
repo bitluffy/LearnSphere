@@ -4,18 +4,16 @@ import {
   FiEdit2,
   FiSave,
   FiX,
-  FiUser,
   FiMail,
   FiBook,
   FiCalendar,
   FiAward,
 } from "react-icons/fi";
-import { RiMentalHealthLine } from "react-icons/ri";
 import Navbar from "./Navbar";
 
 // Initial profile with empty values (will be filled from MongoDB)
 const initialProfile = {
-  name: "",
+  username: "",
   email: "",
   pronouns: "",
   institution: "",
@@ -28,9 +26,6 @@ const initialProfile = {
     maths: 0,
   },
 };
-
-const learningStyles = ["Visual", "Textual", "Step-by-step", "Examples"];
-const interestOptions = ["Physics", "Chemistry", "Maths"];
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState(initialProfile);
@@ -114,17 +109,6 @@ export default function ProfilePage() {
     setEditedProfile({ ...editedProfile, [name]: value });
   };
 
-  const handleInterestToggle = (interest) => {
-    setEditedProfile((prev) => {
-      const interests = prev.interests || [];
-      if (interests.includes(interest)) {
-        return { ...prev, interests: interests.filter((i) => i !== interest) };
-      } else {
-        return { ...prev, interests: [...interests, interest] };
-      }
-    });
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-tr from-indigo-100 via-sky-100 to-emerald-50 flex items-center justify-center">
@@ -185,20 +169,16 @@ export default function ProfilePage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6">
-              {/* Left Column - Avatar and Basic Info */}
+              {/* Left Column - Basic Info */}
               <div className="md:col-span-1">
                 <div className="flex flex-col items-center p-6 bg-white/5 rounded-xl backdrop-blur-sm hover:scale-105 transition-transform">
                   <h2 className="text-2xl font-bold text-white mb-1">
-                    {typeof profile.name === "string" ? profile.name : "User"}
+                    {profile.username}
                   </h2>
 
                   <div className="flex items-center text-indigo-200 mb-4">
                     <FiMail className="mr-2" />
-                    <span>
-                      {typeof profile.email === "string"
-                        ? profile.email
-                        : "email@example.com"}
-                    </span>
+                    <span>{profile.email}</span>
                   </div>
 
                   {editing ? (
@@ -235,14 +215,12 @@ export default function ProfilePage() {
                     </h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {profile.badges.map((badge) => (
+                    {profile.badges.map((badge, index) => (
                       <div
-                        key={badge.title}
+                        key={index}
                         className="flex items-center bg-gradient-to-r from-yellow-400/20 to-amber-500/20 backdrop-blur-sm text-yellow-100 rounded-full px-4 py-2 text-sm font-medium border border-yellow-400/30 shadow-lg hover:scale-105 transition-transform"
                       >
-                        <span className="mr-2 text-xl">
-                          {typeof badge.icon === "string" ? badge.icon : null}
-                        </span>
+                        <span className="mr-2 text-xl">{badge.icon}</span>
                         {badge.title}
                       </div>
                     ))}

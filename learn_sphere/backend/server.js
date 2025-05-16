@@ -144,7 +144,6 @@ app.get("/api/user/profile", verifyToken, async (req, res) => {
   }
 });
 
-<<<<<<< HEAD
 app.put("/api/user/profile", verifyToken, async (req, res) => {
   try {
     const { pronouns, institution, year, branch } = req.body;
@@ -172,8 +171,6 @@ app.put("/api/user/profile", verifyToken, async (req, res) => {
 });
 
 
-=======
->>>>>>> 3a04c22ee9b462eb1cd10e9cc2b0dafbee37c5d0
 // --- Physics Chatbot ---
 const handlePhysicsQuery = async (query) => {
   try {

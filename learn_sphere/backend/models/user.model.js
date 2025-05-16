@@ -21,7 +21,6 @@ const querySchema = new mongoose.Schema({
   },
 });
 
-<<<<<<< HEAD
 const badgeSchema = new mongoose.Schema({
     title: {
         type: String,
@@ -46,69 +45,57 @@ const progressSchema = new mongoose.Schema({
         type: Number,
         default: 0
     }
-});
+}, { _id: false }); // Disable _id for progress schema
 
 const userSchema = new mongoose.Schema({
-=======
-const userSchema = new mongoose.Schema(
-  {
->>>>>>> 3a04c22ee9b462eb1cd10e9cc2b0dafbee37c5d0
-    username: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    password: {
-      type: String,
-      required: true,
-    },
-<<<<<<< HEAD
-    pronouns: {
-        type: String,
-        default: ""
-    },
-    institution: {
-        type: String,
-        default: ""
-    },
-    year: {
-        type: String,
-        default: ""
-    },
-    branch: {
-        type: String,
-        default: ""
-    },
-    badges: {
-        type: [badgeSchema],
-        default: [
-            { title: "Calculus Sensei", icon: "📐" },
-            { title: "Bond Master", icon: "🧪" },
-            { title: "Physics Pro", icon: "⚡" }
-        ]
-    },
-    progress: {
-        type: progressSchema,
-        default: {
-            physics: 0,
-            chemistry: 0,
-            maths: 0
-        }
-    },
-    prompts: [promptSchema]
-}, { timestamps: true });
-=======
-    // Array to store all queries and solutions in a single document
-    queries: [querySchema],
+  username: {
+    type: String,
+    required: true,
+    unique: true,
   },
-  { timestamps: true }
-);
->>>>>>> 3a04c22ee9b462eb1cd10e9cc2b0dafbee37c5d0
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  password: {
+    type: String,
+    required: true,
+  },
+  pronouns: {
+    type: String,
+    default: ""
+  },
+  institution: {
+    type: String,
+    default: ""
+  },
+  year: {
+    type: String,
+    default: ""
+  },
+  branch: {
+    type: String,
+    default: ""
+  },
+  badges: {
+    type: [badgeSchema],
+    default: [
+      { title: "Calculus Sensei", icon: "📐" },
+      { title: "Bond Master", icon: "🧪" },
+      { title: "Physics Pro", icon: "⚡" }
+    ]
+  },
+  progress: {
+    type: progressSchema,
+    default: {
+      physics: 0,
+      chemistry: 0,
+      maths: 0
+    }
+  },
+  queries: [querySchema]
+}, { timestamps: true });
 
 const User = mongoose.model("User", userSchema);
 export default User;
