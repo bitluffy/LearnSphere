@@ -237,7 +237,7 @@ app.post("/physics", verifyToken, async (req, res) => {
 });
 
 // --- Mathematics Chatbot ---
-app.post("/maths", async (req, res) => {
+app.post("/maths", verifyToken, async (req, res) => {
   try {
     const { query } = req.body;
     const response = await axios.post(
@@ -269,9 +269,20 @@ Example format:
       },
       { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
     );
-    const normalizedResponse = normalizeLatexDelimiters(
-      response.data.choices[0].message.content
-    );
+    const solution = response.data.choices[0].message.content;
+
+    // Store the query and solution in the user's database
+    await User.findByIdAndUpdate(req.user.id, {
+      $push: {
+        queries: {
+          query,
+          solution,
+          subject: "maths"
+        }
+      }
+    });
+
+    const normalizedResponse = normalizeLatexDelimiters(solution);
     res.json({ response: normalizedResponse });
   } catch (error) {
     res.status(500).json({ error: "Math processing failed" });
@@ -279,7 +290,7 @@ Example format:
 });
 
 // --- Chemistry Chatbot ---
-app.post("/chemistry", async (req, res) => {
+app.post("/chemistry", verifyToken, async (req, res) => {
   try {
     const { query } = req.body;
     const response = await axios.post(
@@ -312,9 +323,20 @@ Example format:
       },
       { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
     );
-    const normalizedResponse = normalizeLatexDelimiters(
-      response.data.choices[0].message.content
-    );
+    const solution = response.data.choices[0].message.content;
+
+    // Store the query and solution in the user's database
+    await User.findByIdAndUpdate(req.user.id, {
+      $push: {
+        queries: {
+          query,
+          solution,
+          subject: "chemistry"
+        }
+      }
+    });
+
+    const normalizedResponse = normalizeLatexDelimiters(solution);
     res.json({ response: normalizedResponse });
   } catch (error) {
     res.status(500).json({ error: "Chemistry processing failed" });

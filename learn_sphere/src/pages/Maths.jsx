@@ -1,5 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import mermaid from "mermaid";
+import { InlineMath, BlockMath } from "react-katex";
+import 'katex/dist/katex.min.css';
 import Navbar from './Navbar';
 
 const Maths = () => {
@@ -58,9 +60,17 @@ const Maths = () => {
           });
         }
       } else if (mode === "chat") {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          throw new Error("Please log in to use the chat feature");
+        }
+
         const res = await fetch('http://localhost:3000/maths', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
           body: JSON.stringify({ query: userPrompt }),
         });
         const data = await res.json();
@@ -84,6 +94,18 @@ const Maths = () => {
     }
     setUserPrompt('');
     setLoading(false);
+  };
+
+  const renderWithLatex = (text) => {
+    const segments = text.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
+    return segments.map((segment, index) => {
+      if (segment.startsWith("$$") && segment.endsWith("$$")) {
+        return <BlockMath key={index} math={segment.slice(2, -2).trim()} errorColor="#cc0000" />;
+      } else if (segment.startsWith("$") && segment.endsWith("$")) {
+        return <InlineMath key={index} math={segment.slice(1, -1).trim()} errorColor="#cc0000" />;
+      }
+      return <span key={index}>{segment}</span>;
+    });
   };
 
   return (
@@ -174,7 +196,17 @@ const Maths = () => {
                 maxWidth: "75%",
                 fontSize: "1rem"
               }}>
-                {msg.text}
+                <div style={{ 
+                  '& .katex': { 
+                    color: 'inherit',
+                    fontSize: '1.1em'
+                  },
+                  '& .katex-display': {
+                    margin: '1em 0'
+                  }
+                }}>
+                  {renderWithLatex(msg.text)}
+                </div>
               </div>
             </div>
           ))}
