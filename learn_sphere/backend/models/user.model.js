@@ -1,20 +1,27 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const promptSchema = new mongoose.Schema({
-    query: {
-        type: String,
-        required: true
-    },
-    response: {
-        type: String,
-        required: true
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    }
+// Schema for individual query-solution pairs
+const querySchema = new mongoose.Schema({
+  query: {
+    type: String,
+    required: true,
+  },
+  solution: {
+    type: String,
+    required: true,
+  },
+  subject: {
+    type: String,
+    enum: ["physics", "chemistry", "mathematics"],
+    default: "other",
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
+<<<<<<< HEAD
 const badgeSchema = new mongoose.Schema({
     title: {
         type: String,
@@ -42,20 +49,25 @@ const progressSchema = new mongoose.Schema({
 });
 
 const userSchema = new mongoose.Schema({
+=======
+const userSchema = new mongoose.Schema(
+  {
+>>>>>>> 3a04c22ee9b462eb1cd10e9cc2b0dafbee37c5d0
     username: {
-        type: String,
-        required: true,
-        unique: true
+      type: String,
+      required: true,
+      unique: true,
     },
     email: {
-        type: String,
-        required: true,
-        unique: true
+      type: String,
+      required: true,
+      unique: true,
     },
     password: {
-        type: String,
-        required: true,
+      type: String,
+      required: true,
     },
+<<<<<<< HEAD
     pronouns: {
         type: String,
         default: ""
@@ -90,6 +102,13 @@ const userSchema = new mongoose.Schema({
     },
     prompts: [promptSchema]
 }, { timestamps: true });
+=======
+    // Array to store all queries and solutions in a single document
+    queries: [querySchema],
+  },
+  { timestamps: true }
+);
+>>>>>>> 3a04c22ee9b462eb1cd10e9cc2b0dafbee37c5d0
 
-const User = mongoose.model('User', userSchema);
+const User = mongoose.model("User", userSchema);
 export default User;
