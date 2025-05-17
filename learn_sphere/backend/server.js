@@ -1232,6 +1232,35 @@ app.post("/api/generate-personalized-quiz", verifyToken, async (req, res) => {
   }
 });
 
+// Add this function near the top of the file, after imports
+const calculateRatingChange = (currentRating, score, previousScores) => {
+  // K-factor determines how much the rating can change
+  const K = 32;
+  
+  // Calculate expected score based on current rating
+  // Higher rating means higher expected score
+  const expectedScore = 0.5 + (currentRating - 1000) / 2000;
+  
+  // Calculate actual score (normalized to 0-1)
+  const actualScore = score / 100;
+  
+  // Calculate rating change
+  let ratingChange = Math.round(K * (actualScore - expectedScore));
+  
+  // Adjust rating change based on consistency
+  if (previousScores.length > 0) {
+    const averagePreviousScore = previousScores.reduce((a, b) => a + b, 0) / previousScores.length;
+    const scoreDifference = Math.abs(score - averagePreviousScore);
+    
+    // If score is very different from average, reduce rating change
+    if (scoreDifference > 30) {
+      ratingChange *= 0.8;
+    }
+  }
+  
+  return Math.round(ratingChange);
+};
+
 // Submit a personalized quiz
 app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
   try {
@@ -1297,6 +1326,64 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
 
     const percentageScore = (score / quiz.length) * 100;
 
+    // Get user and calculate rating changes
+    const user = await User.findById(userId);
+    if (!user) {
+      console.error("User not found:", userId);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Initialize rating if it doesn't exist
+    if (!user.rating) {
+      user.rating = {
+        current: 1000,
+        history: [],
+        subjectRatings: {
+          physics: 1000,
+          chemistry: 1000,
+          mathematics: 1000
+        }
+      };
+    }
+
+    // Get previous scores for this subject
+    const previousScores = user.quizResults
+      .filter(q => q.subject === normalizedSubject)
+      .slice(-5) // Get last 5 scores
+      .map(q => q.score);
+
+    // Calculate rating changes
+    const currentRating = user.rating.current;
+    const subjectRating = user.rating.subjectRatings[normalizedSubject];
+    
+    const overallRatingChange = calculateRatingChange(currentRating, percentageScore, previousScores);
+    const subjectRatingChange = calculateRatingChange(subjectRating, percentageScore, previousScores);
+
+    // Update ratings
+    const newOverallRating = Math.max(100, currentRating + overallRatingChange);
+    const newSubjectRating = Math.max(100, subjectRating + subjectRatingChange);
+
+    // Create rating history entry
+    const ratingHistoryEntry = {
+      previousRating: currentRating,
+      newRating: newOverallRating,
+      change: overallRatingChange,
+      quizId: `quiz_${Date.now()}`,
+      subject: normalizedSubject,
+      score: percentageScore,
+      timestamp: new Date()
+    };
+
+    // Update user's ratings
+    user.rating.current = newOverallRating;
+    user.rating.subjectRatings[normalizedSubject] = newSubjectRating;
+    user.rating.history.push(ratingHistoryEntry);
+
+    // Keep only last 20 rating history entries
+    if (user.rating.history.length > 20) {
+      user.rating.history = user.rating.history.slice(-20);
+    }
+
     // Generate feedback using Groq API
     const feedbackPrompt = `The user has completed a quiz on ${normalizedSubject} with a score of ${percentageScore}%.
     Provide constructive feedback and suggest areas for improvement based on the following topics they were quizzed on:
@@ -1340,13 +1427,6 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
       feedback: feedbackText,
       timestamp: new Date()
     };
-
-    // Update user's quiz results and progress
-    const user = await User.findById(userId);
-    if (!user) {
-      console.error("User not found:", userId);
-      return res.status(404).json({ message: "User not found" });
-    }
 
     // Initialize arrays if they don't exist
     if (!user.quizResults) {
@@ -1412,7 +1492,8 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
         {
           $push: { quizResults: quizResult },
           $set: {
-            [`subjectProgress.${normalizedSubject}`]: subjectProgress
+            [`subjectProgress.${normalizedSubject}`]: subjectProgress,
+            rating: user.rating
           }
         },
         { new: true, runValidators: true }
@@ -1445,6 +1526,16 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
         averageScore: subjectProgress.averageScore,
         highestScore: subjectProgress.highestScore,
         progressHistory: subjectProgress.progressHistory
+      },
+      rating: {
+        overall: {
+          current: newOverallRating,
+          change: overallRatingChange
+        },
+        subject: {
+          current: newSubjectRating,
+          change: subjectRatingChange
+        }
       }
     });
   } catch (error) {

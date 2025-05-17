@@ -20,6 +20,15 @@ const querySchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  ragContext: String,
+  metrics: {
+    contextCount: Number,
+    qualityIndicators: {
+      hasEquations: Boolean,
+      hasBulletPoints: Boolean,
+      hasExamples: Boolean
+    }
+  }
 });
 
 const badgeSchema = new mongoose.Schema({
@@ -76,7 +85,9 @@ const quizResultSchema = new mongoose.Schema({
     questionText: String,
     userAnswer: String,
     correctAnswer: String,
-    isCorrect: Boolean
+    isCorrect: Boolean,
+    options: [String],
+    explanation: String
   }],
   feedback: String,
   timestamp: {
@@ -153,11 +164,13 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      trim: true,
     },
     email: {
       type: String,
       required: true,
       unique: true,
+      trim: true,
     },
     password: {
       type: String,
@@ -165,24 +178,12 @@ const userSchema = new mongoose.Schema(
     },
     profilePhoto: {
       url: String,
-      publicId: String
+      publicId: String,
     },
-    pronouns: {
-      type: String,
-      default: "",
-    },
-    institution: {
-      type: String,
-      default: "",
-    },
-    year: {
-      type: String,
-      default: "",
-    },
-    branch: {
-      type: String,
-      default: "",
-    },
+    pronouns: String,
+    institution: String,
+    year: String,
+    branch: String,
     badges: {
       type: [badgeSchema],
       default: [
@@ -197,37 +198,40 @@ const userSchema = new mongoose.Schema(
     },
     subjectProgress: {
       physics: {
-        type: subjectProgressSchema,
-        default: () => ({
-          subject: "physics",
-          totalQuizzes: 0,
-          averageScore: 0,
-          highestScore: 0,
-          lastQuizDate: new Date(),
-          progressHistory: []
-        })
+        subject: String,
+        totalQuizzes: Number,
+        averageScore: Number,
+        highestScore: Number,
+        lastQuizDate: Date,
+        progressHistory: [{
+          date: Date,
+          score: Number,
+          quizCount: Number
+        }]
       },
       chemistry: {
-        type: subjectProgressSchema,
-        default: () => ({
-          subject: "chemistry",
-          totalQuizzes: 0,
-          averageScore: 0,
-          highestScore: 0,
-          lastQuizDate: new Date(),
-          progressHistory: []
-        })
+        subject: String,
+        totalQuizzes: Number,
+        averageScore: Number,
+        highestScore: Number,
+        lastQuizDate: Date,
+        progressHistory: [{
+          date: Date,
+          score: Number,
+          quizCount: Number
+        }]
       },
       mathematics: {
-        type: subjectProgressSchema,
-        default: () => ({
-          subject: "mathematics",
-          totalQuizzes: 0,
-          averageScore: 0,
-          highestScore: 0,
-          lastQuizDate: new Date(),
-          progressHistory: []
-        })
+        subject: String,
+        totalQuizzes: Number,
+        averageScore: Number,
+        highestScore: Number,
+        lastQuizDate: Date,
+        progressHistory: [{
+          date: Date,
+          score: Number,
+          quizCount: Number
+        }]
       }
     },
     queries: {
@@ -242,9 +246,29 @@ const userSchema = new mongoose.Schema(
       type: [chatContextSchema],
       default: []
     },
+    rating: {
+      current: { type: Number, default: 1000 }, // Starting rating
+      history: [{
+        previousRating: Number,
+        newRating: Number,
+        change: Number,
+        quizId: String,
+        subject: String,
+        score: Number,
+        timestamp: { type: Date, default: Date.now }
+      }],
+      subjectRatings: {
+        physics: { type: Number, default: 1000 },
+        chemistry: { type: Number, default: 1000 },
+        mathematics: { type: Number, default: 1000 }
+      }
+    },
     webSearches: [{
       query: String,
-      results: Object,
+      results: {
+        tavilyResults: Object,
+        elaboratedResponse: String
+      },
       timestamp: { type: Date, default: Date.now }
     }]
   },

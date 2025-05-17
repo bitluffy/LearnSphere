@@ -14,6 +14,7 @@ const PersonalizedAssessment = () => {
   const [feedback, setFeedback] = useState("");
   const [recentQueries, setRecentQueries] = useState([]);
   const [error, setError] = useState(null);
+  const [rating, setRating] = useState(null);
 
   // Map frontend subject names to backend subject names
   const subjectMapping = {
@@ -135,6 +136,7 @@ const PersonalizedAssessment = () => {
 
   const submitQuiz = async () => {
     setError(null);
+    setLoading(true);
     try {
       const token = localStorage.getItem("token");
       if (!token) {
@@ -180,18 +182,35 @@ const PersonalizedAssessment = () => {
       const result = await response.json();
 
       if (!response.ok) {
+        console.error("Quiz submission failed:", result);
         throw new Error(result.message || "Failed to submit quiz");
+      }
+
+      if (!result.questionResults || !Array.isArray(result.questionResults)) {
+        console.error("Invalid response format:", result);
+        throw new Error("Invalid response format from server");
       }
 
       setScore(result.score);
       setQuestionResults(result.questionResults);
       setFeedback(result.feedback);
+      setRating(result.rating);
       setShowResults(true);
     } catch (error) {
       console.error("Error submitting quiz:", error);
       setError(error.message);
-      alert(error.message);
+      setShowResults(false);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // Add this helper function to format rating changes
+  const formatRatingChange = (change) => {
+    if (change > 0) {
+      return `+${change}`;
+    }
+    return change.toString();
   };
 
   return (
@@ -342,14 +361,42 @@ const PersonalizedAssessment = () => {
           {showResults && (
             <div className="bg-gray-900 rounded-xl p-6 shadow-xl mt-8">
               <h2 className="text-2xl font-bold mb-4 text-green-400 text-center">Quiz Results</h2>
+              
+              {/* Rating Display */}
+              {rating && (
+                <div className="mb-6 p-4 bg-gray-800 rounded-lg">
+                  <h3 className="text-xl font-bold mb-3 text-blue-400">Rating Changes</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-3 bg-gray-700 rounded">
+                      <h4 className="font-semibold text-gray-300">Overall Rating</h4>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-lg">{rating.overall.current}</span>
+                        <span className={`text-sm ${rating.overall.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {formatRatingChange(rating.overall.change)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-3 bg-gray-700 rounded">
+                      <h4 className="font-semibold text-gray-300">{selectedSubject.charAt(0).toUpperCase() + selectedSubject.slice(1)} Rating</h4>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-lg">{rating.subject.current}</span>
+                        <span className={`text-sm ${rating.subject.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {formatRatingChange(rating.subject.change)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <p className="text-lg mb-2 text-center">Score: <span className="font-bold">{score}%</span></p>
               
               <div className="mb-4 space-y-6">
                 {questionResults.map((result, idx) => (
                   <div key={idx} className="p-4 bg-gray-800 rounded-lg">
                     <h3 className="font-bold text-lg mb-2">
-                      <span className={result.correct ? "text-green-400" : "text-red-400"}>
-                        Q{idx + 1}: {result.correct ? "Correct" : "Incorrect"}
+                      <span className={result.isCorrect ? "text-green-400" : "text-red-400"}>
+                        Q{idx + 1}: {result.isCorrect ? "Correct" : "Incorrect"}
                       </span>
                     </h3>
                     <p className="mb-3">{renderWithLatex(result.questionText)}</p>

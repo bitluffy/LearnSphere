@@ -134,6 +134,24 @@ export default function ProfilePage() {
     return "bg-red-500";
   };
 
+  const getRatingColor = (rating) => {
+    if (rating >= 2000) return "text-red-500";
+    if (rating >= 1800) return "text-orange-500";
+    if (rating >= 1600) return "text-yellow-500";
+    if (rating >= 1400) return "text-green-500";
+    if (rating >= 1200) return "text-blue-500";
+    return "text-gray-400";
+  };
+
+  const formatRatingHistory = (history) => {
+    if (!history || history.length === 0) return [];
+    return history.map(entry => ({
+      rating: entry.newRating,
+      date: new Date(entry.timestamp).toLocaleDateString(),
+      change: entry.change
+    }));
+  };
+
   const handlePhotoUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;

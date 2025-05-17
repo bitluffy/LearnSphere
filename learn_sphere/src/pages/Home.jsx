@@ -1,6 +1,88 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from './Navbar';
+import axios from 'axios';
+
+const RatingGraph = () => {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchRating = async () => {
+      try {
+        setLoading(true);
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('Not authenticated');
+        const response = await axios.get('http://localhost:3000/api/user/profile', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          withCredentials: true,
+        });
+        setHistory(response.data?.rating?.history || []);
+      } catch (err) {
+        setError('Failed to load rating history');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRating();
+  }, []);
+
+  if (loading) return <div className="text-blue-400 text-center mb-8">Loading rating graph...</div>;
+  if (error) return <div className="text-red-400 text-center mb-8">{error}</div>;
+  if (!history.length) return <div className="text-gray-400 text-center mb-8">No rating history yet. Take quizzes to build your rating!</div>;
+
+  // Prepare data for SVG
+  const maxRating = Math.max(...history.map(h => h.newRating), 2000);
+  const minRating = Math.min(...history.map(h => h.newRating), 1000);
+  const points = history.map((h, i) => {
+    const x = (i / (history.length - 1 || 1)) * 500;
+    const y = 120 - ((h.newRating - minRating) / (maxRating - minRating || 1)) * 100;
+    return `${x},${y}`;
+  }).join(' ');
+  const latest = history[history.length - 1];
+
+  return (
+    <div className="w-full max-w-2xl mx-auto mb-10 bg-gray-800 rounded-xl p-6 border border-blue-700 shadow-lg">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-xl font-bold text-blue-400">Your Rating Progress</h2>
+        <span className="text-lg text-gray-300">Current: <span className="font-bold text-blue-300">{latest.newRating}</span></span>
+      </div>
+      <svg width="100%" height="140" viewBox="0 0 500 140" className="block">
+        <polyline
+          fill="none"
+          stroke="url(#rating-gradient)"
+          strokeWidth="4"
+          points={points}
+        />
+        <defs>
+          <linearGradient id="rating-gradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#60a5fa" />
+            <stop offset="50%" stopColor="#a78bfa" />
+            <stop offset="100%" stopColor="#f472b6" />
+          </linearGradient>
+        </defs>
+        {/* Dots for each point */}
+        {history.map((h, i) => {
+          const x = (i / (history.length - 1 || 1)) * 500;
+          const y = 120 - ((h.newRating - minRating) / (maxRating - minRating || 1)) * 100;
+          return (
+            <circle key={i} cx={x} cy={y} r="5" fill="#38bdf8" stroke="#fff" strokeWidth="2">
+              <title>{`Rating: ${h.newRating}\n${new Date(h.timestamp).toLocaleDateString()}`}</title>
+            </circle>
+          );
+        })}
+      </svg>
+      <div className="flex justify-between text-xs text-gray-400 mt-2">
+        <span>{minRating}</span>
+        <span>{maxRating}</span>
+      </div>
+    </div>
+  );
+};
 
 const Home = () => {
   const navigate = useNavigate(); 
@@ -13,6 +95,7 @@ const Home = () => {
     <>
       <Navbar/>
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col items-center justify-start py-12 overflow-y-auto">
+        <RatingGraph />
         <h1 className="text-3xl md:text-4xl font-extrabold text-blue-400 mb-10 text-center drop-shadow-lg">Choose Your Learning Agent</h1>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl px-4">
           {/* Physics Card */}
