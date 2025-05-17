@@ -7,6 +7,7 @@ const navigation = [
   { name: "Physics", href: "/Physics", current: false },
   { name: "Chemistry", href: "/Chemistry", current: false },
   { name: "Maths", href: "/Maths", current: false },
+  { name: "Assessment", href:"/PersonalizedAssisstant",current: false},
 ];
 
 export default function Navbar() {

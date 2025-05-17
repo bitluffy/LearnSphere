@@ -166,6 +166,11 @@ const userSchema = new mongoose.Schema(
       type: [querySchema],
       default: [],
     },
+    webSearches: [{
+      query: String,
+      results: Object,
+      timestamp: { type: Date, default: Date.now }
+    }]
   },
   { timestamps: true }
 );

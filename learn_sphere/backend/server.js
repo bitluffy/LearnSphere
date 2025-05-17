@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "./models/user.model.js";
+import { tavily } from '@tavily/core';
 
 // Configuration
 dotenv.config();
@@ -15,6 +16,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+
+// Initialize Tavily client
+const tavilyClient = tavily({ apiKey: process.env.TAVILY_API_KEY });
 
 // --- LaTeX Normalization Utility ---
 function normalizeLatexDelimiters(text) {
@@ -181,13 +185,14 @@ const handlePhysicsQuery = async (query, userId) => {
         messages: [
           {
             role: "system",
-            content: `Physics tutor. Answer concisely in bullet points or numbered steps.
-- Always write all equations in LaTeX.
-- Use $$...$$ for display (block) equations, $...$ for inline equations.
-- No newlines immediately after/before $$.
-- Give brief engineering examples.
-- Always include unit/dimension checks.
-- No paragraphs; keep responses short and clear.`,
+            content: `Physics tutor. Keep responses concise and clear:
+- Write equations in human-readable form first, then LaTeX
+- Use $$...$$ for display equations, $...$ for inline
+- No newlines around $$ delimiters
+- Include units and dimensions
+- Give brief, practical examples
+- Use bullet points for clarity
+- Keep responses under 150 words unless detailed explanation is requested`,
           },
           { role: "user", content: query },
         ],
@@ -247,21 +252,19 @@ app.post("/maths", verifyToken, async (req, res) => {
         messages: [
           {
             role: "system",
-            content: `Maths tutor. Always:
-1. Show 2+ solution methods
-2. Always write all equations in LaTeX.
-3. Use $$...$$ for display (block) equations, $...$ for inline equations.
-4. No newlines immediately after/before $$.
-5. Give engineering applications
-6. Highlight common errors
-7. Verify dimensional consistency
+            content: `Maths tutor. Keep responses concise and clear:
+1. Show 1-2 solution methods (unless more requested)
+2. Write equations in human-readable form first, then LaTeX
+3. Use $$...$$ for display equations, $...$ for inline
+4. No newlines around $$ delimiters
+5. Give brief, practical applications
+6. Highlight key steps and common errors
+7. Keep responses under 150 words unless detailed explanation is requested
 
-
-Example format:
+Format:
 **Problem:** [statement]
-**Method 1:** [approach]
-**Method 2:** [alternate approach]
-**Real-world Use:** [application]`,
+**Solution:** [concise steps]
+**Application:** [brief example]`,
           },
           { role: "user", content: query },
         ],
@@ -300,22 +303,19 @@ app.post("/chemistry", verifyToken, async (req, res) => {
         messages: [
           {
             role: "system",
-            content: `Chemistry tutor. Always:
-1. Use SMILES notation for molecules: water=H2O
-2. Always write all chemical equations and math in LaTeX.
-3. Use $$...$$ for display (block) equations, $...$ for inline equations.
-4. No newlines immediately after/before $$.
-5. Balance equations stepwise
-6. Explain lab safety protocols
-7. Include reaction mechanisms
-8. Add real-industry examples
+            content: `Chemistry tutor. Keep responses concise and clear:
+1. Write chemical formulas in human-readable form first (e.g., "2H2 + O2 → 2H2O")
+2. Then show in LaTeX if needed
+3. Use $$...$$ for display equations, $...$ for inline
+4. No newlines around $$ delimiters
+5. Balance equations stepwise but concisely
+6. Include brief safety notes
+7. Keep responses under 150 words unless detailed explanation is requested
 
-
-Example format:
-**Concept:** [topic]
-**Step 1:** [key step]
-**Lab Safety:** [precaution]
-**Industrial Use:** [application]`,
+Format:
+**Reaction:** [human-readable equation]
+**Steps:** [key points]
+**Safety:** [brief note]`,
           },
           { role: "user", content: query },
         ],
@@ -331,7 +331,8 @@ Example format:
         queries: {
           query,
           solution,
-          subject: "chemistry"
+          subject: "chemistry",
+          createdAt: new Date(),
         }
       }
     });
@@ -598,6 +599,338 @@ function generateFlowchartHTML(data) {
 
   return html;
 }
+// --- Personalized Assessment Endpoints ---
+
+// Fetch recent queries for a subject
+app.get("/api/recent-queries/:subject", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const subject = req.params.subject.toLowerCase();
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const minQueryLength = 3; // Minimum length for a query to be considered non-generic
+    const genericGreetings = ["hi", "hello", "hey", "heya", "hii", "yo"]; // Common generic greetings
+
+    const recentQueries = user.queries
+      .filter(
+        (q) =>
+          q.subject === subject &&
+          q.query.trim().length >= minQueryLength &&
+          !genericGreetings.includes(q.query.trim().toLowerCase())
+      )
+      .sort((a, b) => b.createdAt - a.createdAt) // Sort by most recent
+      .slice(0, 15); // Get the last 10-15 queries (adjust as needed, e.g., 10 or 15)
+
+    res.json({
+      queries: recentQueries.map((q) => ({
+        query: q.query,
+        createdAt: q.createdAt,
+      })),
+    }); // Send only query text and creation time
+  } catch (error) {
+    console.error("Error fetching recent queries:", error);
+    res.status(500).json({ message: "Failed to fetch recent queries" });
+  }
+});
+
+// Generate a personalized quiz
+app.post("/api/generate-personalized-quiz", verifyToken, async (req, res) => {
+  try {
+    const { subject, queries } = req.body;
+
+    if (!subject || !queries || queries.length === 0) {
+      return res.status(400).json({
+        message: "Subject and recent queries are required.",
+        quiz: { questions: [] } // Return empty questions array
+      });
+    }
+
+    // Extract just the query text for the Groq API prompt
+    const queryTexts = queries.map((q) => q.query);
+    
+    // Log the queries being used for debugging
+    console.log(`Generating quiz for ${subject} with ${queryTexts.length} queries:`, queryTexts);
+
+    const systemPrompt = `You are an expert quiz generator. Create a personalized quiz based on the following recent learning topics in ${subject}.
+    The quiz should consist of 5 multiple-choice questions.
+    Each question must have 4 options (A, B, C, D).
+    Clearly indicate the correct answer for each question.
+    Provide a detailed explanation for each question that explains why the correct answer is right and why the other options are wrong.
+    Ensure all mathematical and scientific expressions are in proper LaTeX format (e.g., $E=mc^2$, $$\sum_{i=1}^n x_i$$).
+    The output must be a valid JSON object with a single key "quiz", which is an array of question objects.
+    Each question object must have the following structure:
+    { "id": "q1", "question": "Question text with LaTeX?", "options": {"A": "Option A", "B": "Option B", "C": "Option C", "D": "Option D"}, "correctAnswer": "A", "explanation": "Detailed explanation of why A is correct and why B, C, D are incorrect." }
+    Do not include any other text, commentary, or formatting outside this JSON structure.
+
+    Recent learning topics:
+    ${queryTexts.join("\n- ")}`;
+
+    const response = await axios.post(
+      GROQ_API_URL,
+      {
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `Generate a 5-question multiple-choice quiz on ${subject} based on these topics: ${queryTexts.join(
+              ", "
+            )}`,
+          },
+        ],
+        temperature: 0.5, // Slightly higher temperature for more varied questions
+        response_format: { type: "json_object" }, // Ensure JSON output
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    let quizData = response.data.choices[0].message.content;
+    // console.log("Raw quiz data from API:", quizData);
+
+    // Attempt to parse the JSON content
+    try {
+      const parsedQuiz = JSON.parse(quizData);
+      if (!parsedQuiz.quiz || !Array.isArray(parsedQuiz.quiz) || parsedQuiz.quiz.length === 0) {
+        console.log("Quiz data is empty or not in expected format:", quizData);
+        // Return a valid structure with empty questions instead of throwing error
+        return res.json({ quiz: { questions: [] } });
+      }
+      
+      // Transform the quiz data to match frontend expectations
+      const transformedQuestions = parsedQuiz.quiz.map((q) => ({
+        id: q.id,
+        text: normalizeLatexDelimiters(q.question),
+        options: [
+          normalizeLatexDelimiters(q.options.A),
+          normalizeLatexDelimiters(q.options.B),
+          normalizeLatexDelimiters(q.options.C),
+          normalizeLatexDelimiters(q.options.D)
+        ],
+        correctAnswer: q.correctAnswer,
+        explanation: normalizeLatexDelimiters(q.explanation || "No explanation provided.")
+      }));
+      
+      res.json({ quiz: { questions: transformedQuestions } });
+    } catch (parseError) {
+      console.error("Error parsing quiz JSON from API:", parseError);
+      console.error("Problematic JSON string:", quizData);
+      return res.status(500).json({
+        message:
+          "Failed to generate quiz due to an issue with the quiz data format from the AI.",
+      });
+    }
+  } catch (error) {
+    console.error(
+      "Error generating personalized quiz:",
+      error.response ? error.response.data : error.message
+    );
+    // Return a valid structure with empty questions
+    res.json({ quiz: { questions: [] } });
+  }
+});
+
+// Submit a personalized quiz
+app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
+  try {
+    const { subject, answers, quiz } = req.body;
+    const userId = req.user.id;
+
+    if (!subject || !answers || !quiz || !Array.isArray(quiz)) {
+      return res.status(400).json({ message: "Invalid quiz submission data" });
+    }
+
+    let score = 0;
+    const questionResults = quiz.map((question) => {
+      const userAnswer = answers[question.id];
+      const isCorrect = userAnswer === question.correctAnswer;
+      if (isCorrect) {
+        score++;
+      }
+      return {
+        questionId: question.id,
+        questionText: question.text,
+        userAnswer,
+        correctAnswer: question.correctAnswer,
+        correct: isCorrect,
+        options: question.options,
+        explanation: question.explanation || "No explanation available for this question."
+      };
+    });
+
+    const percentageScore = (score / quiz.length) * 100;
+
+    // Generate feedback using Groq API
+    const feedbackPrompt = `The user has completed a quiz on ${subject} with a score of ${percentageScore}%.
+    Provide constructive feedback and suggest areas for improvement based on the following topics they were quizzed on:
+    ${quiz.map((q) => `- ${q.text.substring(0, 100)}...`).join("\n")}
+    Keep the feedback concise, encouraging, and focused on learning. Suggest 2-3 specific topics or concepts to review if the score is below 70%.
+    If the score is 70% or above, congratulate them and suggest one advanced topic or real-world application related to the quiz content.`;
+
+    const feedbackResponse = await axios.post(
+      GROQ_API_URL,
+      {
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: "You are a helpful academic advisor." },
+          { role: "user", content: feedbackPrompt },
+        ],
+        temperature: 0.6,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const feedbackText = normalizeLatexDelimiters(
+      feedbackResponse.data.choices[0].message.content
+    );
+
+    // Store quiz results in the user's database
+    await User.findByIdAndUpdate(userId, {
+      $push: {
+        assessments: {
+          subject,
+          score: percentageScore,
+          results: questionResults,
+          feedback: feedbackText,
+          quizTitle: `Personalized ${
+            subject.charAt(0).toUpperCase() + subject.slice(1)
+          } Quiz`,
+          timestamp: new Date(),
+        },
+      },
+    });
+
+    res.json({
+      score: percentageScore,
+      questionResults,
+      feedback: feedbackText,
+    });
+  } catch (error) {
+    console.error("Error submitting quiz:", error);
+    res.status(500).json({ message: "Failed to submit quiz" });
+  }
+});
+// --- Web Crawling Endpoint ---
+app.post("/api/web-search", verifyToken, async (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query) {
+      return res.status(400).json({ error: "Query parameter is required" });
+    }
+
+    // Get search results from Tavily
+    const searchResults = await tavilyClient.search(query, {
+      search_depth: "advanced",
+      include_answer: true,
+      include_raw_content: true,
+      max_results: 5
+    });
+
+    // Format and truncate search results to reduce payload size
+    const formattedResults = searchResults.results.map(result => ({
+      title: result.title,
+      url: result.url,
+      content: result.content.substring(0, 500) // Limit content length
+    }));
+
+    // Use Groq to elaborate on the search results
+    const groqResponse = await axios.post(
+      GROQ_API_URL,
+      {
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `You are a physics expert. Analyze and elaborate on the provided web search results.
+- Focus on physics concepts and principles
+- Include relevant equations in LaTeX format
+- Add real-world applications
+- Highlight key findings
+- Maintain academic accuracy
+- Use bullet points for clarity
+- Include unit analysis where relevant
+
+Format your response as:
+**Key Findings:**
+[bullet points of main findings]
+
+**Physics Concepts:**
+[relevant physics principles]
+
+**Equations:**
+[LaTeX equations]
+
+**Applications:**
+[real-world examples]
+
+**Sources:**
+[list of sources used]`
+          },
+          {
+            role: "user",
+            content: `Please analyze and elaborate on these search results for the query "${query}":\n\n${JSON.stringify({
+              query: query,
+              results: formattedResults
+            }, null, 2)}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 1000
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const elaboratedResponse = groqResponse.data.choices[0].message.content;
+
+    // Store the search query and results in the user's database
+    await User.findByIdAndUpdate(req.user.id, {
+      $push: {
+        webSearches: {
+          query,
+          results: {
+            tavilyResults: searchResults,
+            elaboratedResponse: elaboratedResponse
+          },
+          timestamp: new Date()
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        answer: elaboratedResponse,
+        sources: searchResults.sources,
+        rawResults: searchResults
+      }
+    });
+  } catch (error) {
+    console.error("Web search error:", error);
+    res.status(500).json({ 
+      error: "Web search failed",
+      details: error.message 
+    });
+  }
+});
 
 // --- Server Start ---
 const PORT = process.env.PORT || 3000;

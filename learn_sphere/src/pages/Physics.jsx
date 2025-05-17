@@ -1,32 +1,38 @@
 import React, { useRef, useState, useEffect } from "react";
 import mermaid from "mermaid";
 import { InlineMath, BlockMath } from "react-katex";
+import "katex/dist/katex.min.css";
 import Navbar from "./Navbar";
+import { useNavigate } from "react-router-dom";
 
 const Physics = () => {
+  const navigate = useNavigate();
   const containerRef = useRef(null);
+  const textareaRef = useRef(null);
   const [userPrompt, setUserPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("chat");
   const [chatMessages, setChatMessages] = useState([]);
   const [flowchartData, setFlowchartData] = useState(null);
-
+  const [isWebSearch, setIsWebSearch] = useState(false);
   const subject = "Physics";
-
-  const renderWithLatex = (text) => {
-    const segments = text.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
-    return segments.map((segment, index) => {
-      if (segment.startsWith("$$") && segment.endsWith("$$")) {
-        return <BlockMath key={index} math={segment.slice(2, -2).trim()} />;
-      } else if (segment.startsWith("$") && segment.endsWith("$")) {
-        return <InlineMath key={index} math={segment.slice(1, -1).trim()} />;
-      }
-      return <span key={index}>{segment}</span>;
-    });
-  };
+  const storageKey = "physicsChat";
 
   useEffect(() => {
-    // Auto scroll to bottom on new message or flowchart
+    const savedChat = sessionStorage.getItem(storageKey);
+    if (savedChat) {
+      setChatMessages(JSON.parse(savedChat));
+    }
+  }, []);
+
+  useEffect(() => {
+    sessionStorage.setItem(storageKey, JSON.stringify(chatMessages));
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
@@ -50,23 +56,20 @@ const Physics = () => {
           body: JSON.stringify({ subject, content: userPrompt }),
         });
         const data = await res.json();
-        if (data.structuredData && data.structuredData.mermaid) {
+        if (data.structuredData?.mermaid) {
           mermaid.initialize({ startOnLoad: false });
-          const svgId = "mermaid-physics-chart";
-          mermaid
-            .render(svgId, data.structuredData.mermaid)
-            .then(({ svg }) => {
-              setFlowchartData({
-                svg,
-                description: data.structuredData.description || "",
-              });
-            })
-            .catch(() => {
-              setFlowchartData({
-                svg: "<div style='color:red'>Invalid Mermaid code</div>",
-                description: "",
-              });
+          const svgId = "mermaid-phys-chart";
+          mermaid.render(svgId, data.structuredData.mermaid).then(({ svg }) => {
+            setFlowchartData({
+              svg,
+              description: data.structuredData.description || "",
             });
+          }).catch(() => {
+            setFlowchartData({
+              svg: "<div style='color:red'>Invalid Mermaid code</div>",
+              description: "",
+            });
+          });
         } else {
           setFlowchartData({
             svg: "<div style='color:red'>No flowchart generated</div>",
@@ -75,23 +78,44 @@ const Physics = () => {
         }
       } else if (mode === "chat") {
         const token = localStorage.getItem("token");
-        if (!token) {
-          throw new Error("Please log in to use the chat feature");
-        }
+        if (!token) throw new Error("Please log in to use the chat feature");
 
-        const res = await fetch("http://localhost:3000/physics", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ query: userPrompt }),
-        });
-        const data = await res.json();
-        setChatMessages((prev) => [
-          ...prev,
-          { role: "bot", text: data.response || "No response." },
-        ]);
+        if (isWebSearch) {
+          const res = await fetch("http://localhost:3000/api/web-search", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ query: userPrompt }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            setChatMessages((prev) => [
+              ...prev,
+              { 
+                role: "bot", 
+                text: `Web Search Results:\n${data.data.answer || "No direct answer found."}\n\nSources:\n${data.data.sources?.map(source => `- ${source.title}: ${source.url}`).join('\n') || "No sources available."}`
+              },
+            ]);
+          } else {
+            throw new Error(data.error || "Web search failed");
+          }
+        } else {
+          const res = await fetch("http://localhost:3000/physics", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ query: userPrompt }),
+          });
+          const data = await res.json();
+          setChatMessages((prev) => [
+            ...prev,
+            { role: "bot", text: data.response || "No response." },
+          ]);
+        }
       }
     } catch (err) {
       if (mode === "flowchart") {
@@ -108,13 +132,19 @@ const Physics = () => {
     }
     setUserPrompt("");
     setLoading(false);
+    setIsWebSearch(false);
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleGenerate(e);
-    }
+  const renderWithLatex = (text) => {
+    const segments = text.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
+    return segments.map((segment, index) => {
+      if (segment.startsWith("$$") && segment.endsWith("$$")) {
+        return <BlockMath key={index} math={segment.slice(2, -2).trim()} errorColor="#cc0000" />;
+      } else if (segment.startsWith("$") && segment.endsWith("$")) {
+        return <InlineMath key={index} math={segment.slice(1, -1).trim()} errorColor="#cc0000" />;
+      }
+      return <span key={index}>{segment}</span>;
+    });
   };
 
   return (
@@ -130,7 +160,6 @@ const Physics = () => {
           fontFamily: "Inter, sans-serif",
         }}
       >
-        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -141,74 +170,81 @@ const Physics = () => {
             backgroundColor: "#1e1e20",
           }}
         >
-          <h2
-            style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}
-          >
-            🌌 Physics Assistant
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}>
+            ⚛️ Physics Assistant
           </h2>
-          <div
-            style={{
-              display: "flex",
-              background: "#2a2a2e",
-              borderRadius: "0.5rem",
-              overflow: "hidden",
-            }}
-          >
+          <div style={{ display: "flex", gap: "1rem" }}>
             <button
-              onClick={() => setMode("chat")}
-              disabled={loading}
+              onClick={() => navigate("/visualtest")}
               style={{
                 padding: "0.5rem 1rem",
-                background: mode === "chat" ? "#2563eb" : "transparent",
-                color: mode === "chat" ? "#fff" : "#aaa",
+                background: "#2563eb",
+                color: "#fff",
                 border: "none",
+                borderRadius: "0.5rem",
                 cursor: "pointer",
                 fontWeight: "600",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
               }}
             >
-              Chat
+              🎮 Physics Simulation
             </button>
-            <button
-              onClick={() => setMode("flowchart")}
-              disabled={loading}
+            <div
               style={{
-                padding: "0.5rem 1rem",
-                background: mode === "flowchart" ? "#2563eb" : "transparent",
-                color: mode === "flowchart" ? "#fff" : "#aaa",
-                border: "none",
-                cursor: "pointer",
-                fontWeight: "600",
+                display: "flex",
+                background: "#2a2a2e",
+                borderRadius: "0.5rem",
+                overflow: "hidden",
               }}
             >
-              Flowchart
-            </button>
+              <button
+                onClick={() => setMode("chat")}
+                disabled={loading}
+                style={{
+                  padding: "0.5rem 1rem",
+                  background: mode === "chat" ? "#2563eb" : "transparent",
+                  color: mode === "chat" ? "#fff" : "#aaa",
+                  border: "none",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                }}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setMode("flowchart")}
+                disabled={loading}
+                style={{
+                  padding: "0.5rem 1rem",
+                  background: mode === "flowchart" ? "#2563eb" : "transparent",
+                  color: mode === "flowchart" ? "#fff" : "#aaa",
+                  border: "none",
+                  cursor: "pointer",
+                  fontWeight: "600",
+                }}
+              >
+                Flowchart
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Scrollable Chat/Flowchart */}
-        <div
-          ref={containerRef}
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "1rem 1.5rem",
-          }}
-        >
+        <div ref={containerRef} style={{ flex: 1, overflowY: "auto", padding: "1rem 1.5rem" }}>
           {mode === "chat" && chatMessages.length === 0 && (
-            <p
-              style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}
-            >
+            <p style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}>
               Start a conversation by asking a physics question.
             </p>
           )}
+
           {mode === "chat" &&
             chatMessages.map((msg, idx) => (
               <div
                 key={idx}
                 style={{
                   display: "flex",
-                  justifyContent:
-                    msg.role === "user" ? "flex-end" : "flex-start",
+                  justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
                   margin: "0.5rem 0",
                 }}
               >
@@ -222,12 +258,11 @@ const Physics = () => {
                     fontSize: "1rem",
                   }}
                 >
-                  <div className="[&>.katex]:text-inherit">
-                    {renderWithLatex(msg.text)}
-                  </div>
+                  {renderWithLatex(msg.text)}
                 </div>
               </div>
             ))}
+
           {mode === "flowchart" && flowchartData && (
             <div style={{ color: "#fff" }}>
               <div dangerouslySetInnerHTML={{ __html: flowchartData.svg }} />
@@ -238,23 +273,14 @@ const Physics = () => {
               )}
             </div>
           )}
+
           {loading && (
-            <p
-              style={{
-                textAlign: "center",
-                color: "#60a5fa",
-                marginTop: "1rem",
-              }}
-            >
-              {mode === "flowchart"
-                ? "Generating flowchart..."
-                : "Solving physics problem..."}
+            <p style={{ textAlign: "center", color: "#60a5fa", marginTop: "1rem" }}>
+              {mode === "flowchart" ? "Generating flowchart..." : "Getting answer..."}
             </p>
           )}
         </div>
 
-        {/* Input */}
-        {/* Fixed Input at Bottom */}
         <form
           onSubmit={handleGenerate}
           style={{
@@ -270,14 +296,22 @@ const Physics = () => {
           }}
         >
           <textarea
+            ref={textareaRef}
             value={userPrompt}
             onChange={(e) => setUserPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleGenerate(e);
+              }
+            }}
             rows={1}
             placeholder={
               mode === "flowchart"
-                ? "Describe physics concept for flowchart..."
-                : "Ask a physics question (use $...$ for equations)..."
+                ? "Describe physics process for flowchart..."
+                : isWebSearch
+                ? "Search the web for physics information..."
+                : "Ask a physics question..."
             }
             style={{
               flex: 1,
@@ -292,6 +326,28 @@ const Physics = () => {
             disabled={loading}
             required
           />
+
+          <button
+            type="button"
+            onClick={() => setIsWebSearch(!isWebSearch)}
+            disabled={loading}
+            style={{
+              background: isWebSearch ? "#2563eb" : "#2a2a2e",
+              color: "#fff",
+              border: "none",
+              padding: "0.75rem",
+              fontSize: "1rem",
+              borderRadius: "0.5rem",
+              cursor: loading ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={isWebSearch ? "Disable web search" : "Enable web search"}
+          >
+            🔍
+          </button>
+
           <button
             type="submit"
             disabled={loading}

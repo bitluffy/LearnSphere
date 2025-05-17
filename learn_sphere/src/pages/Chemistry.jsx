@@ -1,21 +1,38 @@
 import React, { useRef, useState, useEffect } from "react";
 import mermaid from "mermaid";
 import { InlineMath, BlockMath } from "react-katex";
-import 'katex/dist/katex.min.css';
+import "katex/dist/katex.min.css";
 import Navbar from "./Navbar";
 
 const Chemistry = () => {
   const containerRef = useRef(null);
+  const textareaRef = useRef(null);
   const [userPrompt, setUserPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("chat");
   const [chatMessages, setChatMessages] = useState([]);
   const [flowchartData, setFlowchartData] = useState(null);
-
+  const [isWebSearch, setIsWebSearch] = useState(false);
   const subject = "Chemistry";
 
+  // Load saved chat from session storage
   useEffect(() => {
-    // Auto scroll to bottom on new message or flowchart
+    const savedChat = sessionStorage.getItem("chemistryChat");
+    if (savedChat) {
+      setChatMessages(JSON.parse(savedChat));
+    }
+  }, []);
+
+  // Save chat messages to session storage on update
+  useEffect(() => {
+    sessionStorage.setItem("chemistryChat", JSON.stringify(chatMessages));
+  }, [chatMessages]);
+
+  // Scroll & Focus
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
@@ -39,23 +56,20 @@ const Chemistry = () => {
           body: JSON.stringify({ subject, content: userPrompt }),
         });
         const data = await res.json();
-        if (data.structuredData && data.structuredData.mermaid) {
+        if (data.structuredData?.mermaid) {
           mermaid.initialize({ startOnLoad: false });
           const svgId = "mermaid-chem-chart";
-          mermaid
-            .render(svgId, data.structuredData.mermaid)
-            .then(({ svg }) => {
-              setFlowchartData({
-                svg,
-                description: data.structuredData.description || "",
-              });
-            })
-            .catch(() => {
-              setFlowchartData({
-                svg: "<div style='color:red'>Invalid Mermaid code</div>",
-                description: "",
-              });
+          mermaid.render(svgId, data.structuredData.mermaid).then(({ svg }) => {
+            setFlowchartData({
+              svg,
+              description: data.structuredData.description || "",
             });
+          }).catch(() => {
+            setFlowchartData({
+              svg: "<div style='color:red'>Invalid Mermaid code</div>",
+              description: "",
+            });
+          });
         } else {
           setFlowchartData({
             svg: "<div style='color:red'>No flowchart generated</div>",
@@ -64,23 +78,46 @@ const Chemistry = () => {
         }
       } else if (mode === "chat") {
         const token = localStorage.getItem("token");
-        if (!token) {
-          throw new Error("Please log in to use the chat feature");
-        }
+        if (!token) throw new Error("Please log in to use the chat feature");
 
-        const res = await fetch("http://localhost:3000/chemistry", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ query: userPrompt }),
-        });
-        const data = await res.json();
-        setChatMessages((prev) => [
-          ...prev,
-          { role: "bot", text: data.response || "No response." },
-        ]);
+        if (isWebSearch) {
+          // Web search request
+          const res = await fetch("http://localhost:3000/api/web-search", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ query: userPrompt }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            setChatMessages((prev) => [
+              ...prev,
+              { 
+                role: "bot", 
+                text: `Web Search Results:\n${data.data.answer || "No direct answer found."}\n\nSources:\n${data.data.sources?.map(source => `- ${source.title}: ${source.url}`).join('\n') || "No sources available."}`
+              },
+            ]);
+          } else {
+            throw new Error(data.error || "Web search failed");
+          }
+        } else {
+          // Regular chemistry chat request
+          const res = await fetch("http://localhost:3000/chemistry", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ query: userPrompt }),
+          });
+          const data = await res.json();
+          setChatMessages((prev) => [
+            ...prev,
+            { role: "bot", text: data.response || "No response." },
+          ]);
+        }
       }
     } catch (err) {
       if (mode === "flowchart") {
@@ -97,6 +134,7 @@ const Chemistry = () => {
     }
     setUserPrompt("");
     setLoading(false);
+    setIsWebSearch(false);
   };
 
   const renderWithLatex = (text) => {
@@ -135,9 +173,7 @@ const Chemistry = () => {
             backgroundColor: "#1e1e20",
           }}
         >
-          <h2
-            style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}
-          >
+          <h2 style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#60a5fa" }}>
             🧪 Chemistry Assistant
           </h2>
           <div
@@ -179,30 +215,21 @@ const Chemistry = () => {
           </div>
         </div>
 
-        {/* Scrollable Chat/Flowchart */}
-        <div
-          ref={containerRef}
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "1rem 1.5rem",
-          }}
-        >
+        {/* Scrollable Output Area */}
+        <div ref={containerRef} style={{ flex: 1, overflowY: "auto", padding: "1rem 1.5rem" }}>
           {mode === "chat" && chatMessages.length === 0 && (
-            <p
-              style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}
-            >
+            <p style={{ textAlign: "center", color: "#777", marginTop: "2rem" }}>
               Start a conversation by asking a chemistry question.
             </p>
           )}
+
           {mode === "chat" &&
             chatMessages.map((msg, idx) => (
               <div
                 key={idx}
                 style={{
                   display: "flex",
-                  justifyContent:
-                    msg.role === "user" ? "flex-end" : "flex-start",
+                  justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
                   margin: "0.5rem 0",
                 }}
               >
@@ -216,20 +243,11 @@ const Chemistry = () => {
                     fontSize: "1rem",
                   }}
                 >
-                  <div style={{ 
-                    '& .katex': { 
-                      color: 'inherit',
-                      fontSize: '1.1em'
-                    },
-                    '& .katex-display': {
-                      margin: '1em 0'
-                    }
-                  }}>
-                    {renderWithLatex(msg.text)}
-                  </div>
+                  {renderWithLatex(msg.text)}
                 </div>
               </div>
             ))}
+
           {mode === "flowchart" && flowchartData && (
             <div style={{ color: "#fff" }}>
               <div dangerouslySetInnerHTML={{ __html: flowchartData.svg }} />
@@ -240,22 +258,15 @@ const Chemistry = () => {
               )}
             </div>
           )}
+
           {loading && (
-            <p
-              style={{
-                textAlign: "center",
-                color: "#60a5fa",
-                marginTop: "1rem",
-              }}
-            >
-              {mode === "flowchart"
-                ? "Generating flowchart..."
-                : "Getting answer..."}
+            <p style={{ textAlign: "center", color: "#60a5fa", marginTop: "1rem" }}>
+              {mode === "flowchart" ? "Generating flowchart..." : "Getting answer..."}
             </p>
           )}
         </div>
 
-        {/* Fixed Input at Bottom */}
+        {/* Input Area */}
         <form
           onSubmit={handleGenerate}
           style={{
@@ -271,12 +282,21 @@ const Chemistry = () => {
           }}
         >
           <textarea
+            ref={textareaRef}
             value={userPrompt}
             onChange={(e) => setUserPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleGenerate(e);
+              }
+            }}
             rows={1}
             placeholder={
               mode === "flowchart"
                 ? "Describe chemistry process for flowchart..."
+                : isWebSearch
+                ? "Search the web for chemistry information..."
                 : "Ask a chemistry question..."
             }
             style={{
@@ -292,6 +312,28 @@ const Chemistry = () => {
             disabled={loading}
             required
           />
+
+          <button
+            type="button"
+            onClick={() => setIsWebSearch(!isWebSearch)}
+            disabled={loading}
+            style={{
+              background: isWebSearch ? "#2563eb" : "#2a2a2e",
+              color: "#fff",
+              border: "none",
+              padding: "0.75rem",
+              fontSize: "1rem",
+              borderRadius: "0.5rem",
+              cursor: loading ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={isWebSearch ? "Disable web search" : "Enable web search"}
+          >
+            🔍
+          </button>
+
           <button
             type="submit"
             disabled={loading}
