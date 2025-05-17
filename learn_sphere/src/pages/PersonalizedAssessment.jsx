@@ -58,8 +58,10 @@ const PersonalizedAssessment = () => {
         throw new Error("Please log in to view your assessments");
       }
 
+      // Use the mapped subject name for the API call
+      const backendSubject = subjectMapping[selectedSubject];
       const response = await fetch(
-        `http://localhost:3000/api/recent-queries/${selectedSubject}`,
+        `http://localhost:3000/api/recent-queries/${backendSubject}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -87,6 +89,8 @@ const PersonalizedAssessment = () => {
         throw new Error("Please log in to generate a quiz");
       }
 
+      // Use the mapped subject name for the API call
+      const backendSubject = subjectMapping[selectedSubject];
       const response = await fetch(
         `http://localhost:3000/api/generate-personalized-quiz`,
         {
@@ -96,7 +100,7 @@ const PersonalizedAssessment = () => {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            subject: selectedSubject,
+            subject: backendSubject,
             queries: recentQueries,
           }),
         }

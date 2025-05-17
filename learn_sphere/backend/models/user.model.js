@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { savePrompt } from "../utils/promptStorage.js";
 
 // Schema for individual query-solution pairs
 const querySchema = new mongoose.Schema({
@@ -117,6 +118,35 @@ const subjectProgressSchema = new mongoose.Schema({
   }]
 }, { _id: false });
 
+// Add RAG metrics schema
+const ragMetricsSchema = new mongoose.Schema({
+    timestamp: {
+        type: Date,
+        default: Date.now
+    },
+    query: String,
+    subject: String,
+    contextCount: Number,
+    responseLength: Number,
+    qualityIndicators: {
+        hasEquations: Boolean,
+        hasBulletPoints: Boolean,
+        hasExamples: Boolean
+    }
+}, { _id: false });
+
+// Add chat context schema
+const chatContextSchema = new mongoose.Schema({
+    query: String,
+    response: String,
+    subject: String,
+    timestamp: {
+        type: Date,
+        default: Date.now
+    },
+    ragContext: String
+}, { _id: false });
+
 const userSchema = new mongoose.Schema(
   {
     username: {
@@ -204,6 +234,14 @@ const userSchema = new mongoose.Schema(
       type: [querySchema],
       default: [],
     },
+    ragMetrics: {
+      type: [ragMetricsSchema],
+      default: []
+    },
+    chatContext: {
+      type: [chatContextSchema],
+      default: []
+    },
     webSearches: [{
       query: String,
       results: Object,
@@ -232,6 +270,22 @@ userSchema.pre('save', function(next) {
   
   next();
 });
+
+// Add a pre-save middleware to store prompts locally
+userSchema.pre('save', async function(next) {
+  if (this.isModified('queries')) {
+    const newQueries = this.queries.filter(query => !query._id);
+    for (const query of newQueries) {
+      await savePrompt(query.query, query.solution, query.subject);
+    }
+  }
+  next();
+});
+
+// Add index for better query performance
+userSchema.index({ 'queries.createdAt': -1 });
+userSchema.index({ 'ragMetrics.timestamp': -1 });
+userSchema.index({ 'chatContext.timestamp': -1 });
 
 const User = mongoose.model("User", userSchema);
 export default User;

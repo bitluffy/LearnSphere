@@ -13,7 +13,7 @@ const Maths = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [flowchartData, setFlowchartData] = useState(null);
   const [isWebSearch, setIsWebSearch] = useState(false);
-  const subject = "Maths";
+  const subject = "mathematics";
   const storageKey = "mathsChat";
 
   useEffect(() => {
@@ -89,12 +89,10 @@ const Maths = () => {
           });
           const data = await res.json();
           if (data.success) {
+            const responseText = `Web Search Results:\n${data.data.answer || "No direct answer found."}\n\nSources:\n${data.data.sources?.map(source => `- ${source.title}: ${source.url}`).join('\n') || "No sources available."}`;
             setChatMessages((prev) => [
               ...prev,
-              { 
-                role: "bot", 
-                text: `Web Search Results:\n${data.data.answer || "No direct answer found."}\n\nSources:\n${data.data.sources?.map(source => `- ${source.title}: ${source.url}`).join('\n') || "No sources available."}`
-              },
+              { role: "bot", text: responseText },
             ]);
           } else {
             throw new Error(data.error || "Web search failed");
@@ -106,8 +104,17 @@ const Maths = () => {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ query: userPrompt }),
+            body: JSON.stringify({ 
+              query: userPrompt,
+              subject: subject
+            }),
           });
+          
+          if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.error || "Failed to get response");
+          }
+          
           const data = await res.json();
           setChatMessages((prev) => [
             ...prev,
@@ -116,6 +123,7 @@ const Maths = () => {
         }
       }
     } catch (err) {
+      console.error("Error in handleGenerate:", err);
       if (mode === "flowchart") {
         setFlowchartData({
           svg: "<div style='color:red'>Failed to load flowchart</div>",
