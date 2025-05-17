@@ -11,6 +11,7 @@ import {
   FiTrendingUp,
 } from "react-icons/fi";
 import Navbar from "./Navbar";
+import axios from 'axios';
 
 // Initial profile with empty values (will be filled from MongoDB)
 const initialProfile = {
@@ -34,6 +35,8 @@ export default function ProfilePage() {
   const [editing, setEditing] = useState(false);
   const [editedProfile, setEditedProfile] = useState(initialProfile);
   const [error, setError] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
 
   // Fetch user data from MongoDB
   useEffect(() => {
@@ -44,24 +47,39 @@ export default function ProfilePage() {
         if (!token) {
           throw new Error("No authentication token found");
         }
-        const response = await fetch("http://localhost:3000/api/user/profile", {
+
+        const response = await axios.get("http://localhost:3000/api/user/profile", {
           headers: {
             Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
           },
+          withCredentials: true
         });
-        if (!response.ok) {
-          throw new Error("Failed to fetch user data");
+
+        if (response.data) {
+          setProfile(response.data);
+          setEditedProfile(response.data);
+        } else {
+          throw new Error("No data received from server");
         }
-        const userData = await response.json();
-        setProfile(userData);
-        setEditedProfile(userData);
       } catch (err) {
         console.error("Error fetching user data:", err);
-        setError("Failed to load profile data. Please try again later.");
+        if (err.response) {
+          // The request was made and the server responded with a status code
+          // that falls out of the range of 2xx
+          setError(err.response.data.error || "Server error occurred");
+        } else if (err.request) {
+          // The request was made but no response was received
+          setError("No response from server. Please check if the server is running.");
+        } else {
+          // Something happened in setting up the request that triggered an Error
+          setError(err.message || "Failed to load profile data");
+        }
       } finally {
         setLoading(false);
       }
     };
+
     fetchUserData();
   }, []);
 
@@ -114,6 +132,47 @@ export default function ProfilePage() {
     if (score >= 80) return "bg-green-500";
     if (score >= 60) return "bg-yellow-500";
     return "bg-red-500";
+  };
+
+  const handlePhotoUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      setUploadError('Please upload a JPEG or PNG image');
+      return;
+    }
+
+    // Validate file size (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError('File size should be less than 5MB');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    try {
+      const response = await axios.post('http://localhost:3000/api/users/profile-photo', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      setProfile(prev => ({
+        ...prev,
+        profilePhoto: response.data.profilePhoto
+      }));
+    } catch (error) {
+      setUploadError(error.response?.data?.message || 'Error uploading photo');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   if (loading) {
@@ -179,6 +238,38 @@ export default function ProfilePage() {
               {/* Left Column - Basic Info */}
               <div className="md:col-span-1">
                 <div className="flex flex-col items-center p-6 bg-gray-800 rounded-xl hover:scale-105 transition-transform border border-gray-700">
+                  {/* Profile Photo Upload Section */}
+                  <div className="relative mb-4">
+                    <img
+                      src={profile.profilePhoto?.url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(profile.username || 'User') + '&background=0D8ABC&color=fff&size=128'}
+                      alt="Profile"
+                      className="w-28 h-28 rounded-full object-cover border-4 border-blue-500"
+                    />
+                    <label
+                      htmlFor="photo-upload"
+                      className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700 transition-colors border-2 border-white"
+                      title="Change profile photo"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4zm6 9a3 3 0 100-6 3 3 0 000 6z" />
+                      </svg>
+                    </label>
+                    <input
+                      id="photo-upload"
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                      disabled={isUploading}
+                    />
+                  </div>
+                  {uploadError && (
+                    <div className="mb-2 text-red-500 text-xs">{uploadError}</div>
+                  )}
+                  {isUploading && (
+                    <div className="mb-2 text-blue-400 text-xs">Uploading...</div>
+                  )}
+                  {/* End Profile Photo Upload Section */}
                   <h2 className="text-2xl font-bold text-blue-400 mb-1">
                     {profile.username}
                   </h2>

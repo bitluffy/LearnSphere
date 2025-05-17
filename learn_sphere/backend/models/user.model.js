@@ -12,7 +12,7 @@ const querySchema = new mongoose.Schema({
   },
   subject: {
     type: String,
-    enum: ["physics", "chemistry", "mathematics"],
+    enum: ["physics", "chemistry", "mathematics", "maths"],
     default: "other",
   },
   createdAt: {
@@ -55,7 +55,7 @@ const quizResultSchema = new mongoose.Schema({
   },
   subject: {
     type: String,
-    enum: ["physics", "chemistry", "mathematics"],
+    enum: ["physics", "chemistry", "mathematics", "maths"],
     required: true
   },
   score: {
@@ -88,7 +88,7 @@ const quizResultSchema = new mongoose.Schema({
 const subjectProgressSchema = new mongoose.Schema({
   subject: {
     type: String,
-    enum: ["physics", "chemistry", "mathematics"],
+    enum: ["physics", "chemistry", "mathematics", "maths"],
     required: true
   },
   totalQuizzes: {
@@ -133,15 +133,9 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    profileImage: {
-      url: {
-        type: String,
-        default: "https://res.cloudinary.com/your-cloud-name/image/upload/v1/default-profile.png"
-      },
-      publicId: {
-        type: String,
-        default: null
-      }
+    profilePhoto: {
+      url: String,
+      publicId: String
     },
     pronouns: {
       type: String,

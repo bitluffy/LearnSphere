@@ -7,11 +7,26 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "./models/user.model.js";
 import { tavily } from '@tavily/core';
+import { cloudinary, upload } from './config/cloudinary.js';
 
 // Configuration
 dotenv.config();
 const app = express();
-app.use(cors());
+
+// CORS configuration
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'], // Allow both localhost and IP
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Add request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -19,6 +34,17 @@ const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 // Initialize Tavily client
 const tavilyClient = tavily({ apiKey: process.env.TAVILY_API_KEY });
+
+// Add this helper function near the top of the file, after imports
+const normalizeSubject = (subject) => {
+  const subjectMap = {
+    'maths': 'mathematics',
+    'mathematics': 'mathematics',
+    'physics': 'physics',
+    'chemistry': 'chemistry'
+  };
+  return subjectMap[subject.toLowerCase()] || subject;
+};
 
 // --- LaTeX Normalization Utility ---
 function normalizeLatexDelimiters(text) {
@@ -138,13 +164,24 @@ app.post("/api/signout", async (req, res) => {
 // --- Protected Profile Route ---
 app.get("/api/user/profile", verifyToken, async (req, res) => {
   try {
+    console.log("Fetching profile for user:", req.user.id);
+    console.log("Token received:", req.headers.authorization?.split(' ')[1]?.substring(0, 10) + '...');
+    
     const user = await User.findById(req.user.id).select("-password");
     if (!user) {
+      console.log("User not found:", req.user.id);
       return res.status(404).json({ error: "User not found" });
     }
+    
+    console.log("Profile found:", user.username);
     res.json(user);
   } catch (error) {
-    res.status(500).json({ error: "Server error" });
+    console.error("Profile fetch error:", error);
+    res.status(500).json({ 
+      error: "Server error", 
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -1100,6 +1137,67 @@ Format your response as:
     res.status(500).json({ 
       error: "Web search failed",
       details: error.message 
+    });
+  }
+});
+
+// Profile photo upload endpoint
+app.post('/api/users/profile-photo', verifyToken, upload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // Check if Cloudinary credentials are configured
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      console.error('Cloudinary credentials not configured');
+      return res.status(500).json({ 
+        message: 'Server configuration error',
+        details: 'Cloudinary credentials not properly configured'
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Delete old photo from Cloudinary if exists
+    if (user.profilePhoto && user.profilePhoto.publicId) {
+      try {
+        await cloudinary.uploader.destroy(user.profilePhoto.publicId);
+      } catch (deleteError) {
+        console.error('Error deleting old photo:', deleteError);
+        // Continue with the update even if deletion fails
+      }
+    }
+
+    // Update user's profile photo
+    user.profilePhoto = {
+      url: req.file.path,
+      publicId: req.file.filename
+    };
+
+    // Normalize subject names in queries
+    if (user.queries) {
+      user.queries = user.queries.map(query => ({
+        ...query,
+        subject: normalizeSubject(query.subject)
+      }));
+    }
+
+    await user.save();
+
+    res.json({
+      message: 'Profile photo updated successfully',
+      profilePhoto: user.profilePhoto
+    });
+  } catch (error) {
+    console.error('Error uploading profile photo:', error);
+    res.status(500).json({ 
+      message: 'Error uploading profile photo',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
