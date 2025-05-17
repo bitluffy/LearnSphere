@@ -8,6 +8,7 @@ import jwt from "jsonwebtoken";
 import User from "./models/user.model.js";
 import { tavily } from '@tavily/core';
 import { cloudinary, upload } from './config/cloudinary.js';
+import { spawn } from 'child_process';
 
 // Configuration
 dotenv.config();
@@ -211,175 +212,616 @@ app.put("/api/user/profile", verifyToken, async (req, res) => {
   }
 });
 
+// Add chat context management
+const MAX_CONTEXT_LENGTH = 5; // Number of previous interactions to keep
+const chatContexts = new Map(); // Store chat contexts for each user
 
-// --- Physics Chatbot ---
-const handlePhysicsQuery = async (query, userId) => {
-  try {
-    const response = await axios.post(
-      GROQ_API_URL,
-      {
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          {
-            role: "system",
-            content: `Physics tutor. Keep responses concise and clear:
+// Function to manage chat context
+const manageChatContext = (userId, query, response, subject) => {
+    if (!chatContexts.has(userId)) {
+        chatContexts.set(userId, []);
+    }
+    
+    const context = chatContexts.get(userId);
+    context.push({
+        query,
+        response,
+        subject,
+        timestamp: new Date(),
+        ragContext: null // Will be updated when RAG is used
+    });
+    
+    // Keep only the last MAX_CONTEXT_LENGTH interactions
+    if (context.length > MAX_CONTEXT_LENGTH) {
+        context.shift();
+    }
+    
+    return context;
+};
+
+// Enhanced RAG metrics tracking
+const trackRAGMetrics = (userId, query, subject, ragContext, response) => {
+    const metrics = {
+        timestamp: new Date(),
+        query,
+        subject,
+        contextCount: ragContext ? (ragContext.match(/Previous Interaction/g) || []).length : 0,
+        responseLength: response.length,
+        qualityIndicators: {
+            hasEquations: response.includes('$$') || response.includes('$'),
+            hasBulletPoints: response.includes('*') || response.includes('-'),
+            hasExamples: response.toLowerCase().includes('example') || response.toLowerCase().includes('for instance')
+        }
+    };
+
+    // Store metrics in user's document
+    User.findByIdAndUpdate(userId, {
+        $push: {
+            ragMetrics: metrics
+        }
+    }).catch(err => console.error('Error storing RAG metrics:', err));
+
+    return metrics;
+};
+
+// Enhanced RAG context retrieval function
+const getEnhancedRAGContext = async (query, subject) => {
+    try {
+        console.log('\n=== Starting RAG Context Retrieval ===');
+        console.log(`Query: ${query}`);
+        console.log(`Subject: ${subject}`);
+
+        const pythonProcess = spawn('python', [
+            './utils/rag_processor.py',
+            '--query', query,
+            '--subject', subject
+        ]);
+
+        let context = '';
+        let error = '';
+
+        pythonProcess.stdout.on('data', (data) => {
+            const output = data.toString();
+            console.log('\n--- RAG Processor Output ---');
+            console.log(output);
+            context += output;
+        });
+
+        pythonProcess.stderr.on('data', (data) => {
+            const errorOutput = data.toString();
+            console.error('\n--- RAG Processor Error ---');
+            console.error(errorOutput);
+            error += errorOutput;
+        });
+
+        return new Promise((resolve, reject) => {
+            pythonProcess.on('close', (code) => {
+                if (code !== 0) {
+                    console.error('RAG Process Error:', error);
+                    console.log('RAG processing failed, returning empty context');
+                    resolve(''); // Return empty context on error
+                } else {
+                    console.log('\n=== RAG Context Retrieved Successfully ===');
+                    console.log('Context length:', context.length);
+                    console.log('Context preview:', context.substring(0, 200) + '...');
+                    resolve(context.trim());
+                }
+            });
+        });
+    } catch (error) {
+        console.error('RAG Context Error:', error);
+        return '';
+    }
+};
+
+// Enhanced logging function
+const logRAGMetrics = (query, subject, ragContext, response) => {
+    const timestamp = new Date().toISOString();
+    console.log('\n=== RAG Performance Metrics ===');
+    console.log(`Timestamp: ${timestamp}`);
+    console.log(`Subject: ${subject}`);
+    console.log(`Query: ${query}`);
+    
+    // Enhanced RAG Context Analysis
+    console.log('\n--- RAG Context Analysis ---');
+    if (ragContext) {
+        const contextCount = (ragContext.match(/Previous Interaction/g) || []).length;
+        console.log(`Number of relevant contexts found: ${contextCount}`);
+        
+        if (contextCount > 0) {
+            console.log('\nContext Details:');
+            const contexts = ragContext.split('\n\n').filter(c => c.includes('Previous Interaction'));
+            contexts.forEach((ctx, i) => {
+                const similarityMatch = ctx.match(/Relevance Score: ([\d.]+)/);
+                const score = similarityMatch ? similarityMatch[1] : 'N/A';
+                const queryMatch = ctx.match(/Query: (.*?)(?:\n|$)/);
+                const query = queryMatch ? queryMatch[1] : 'N/A';
+                
+                console.log(`\nContext ${i + 1}:`);
+                console.log(`- Similarity Score: ${score}`);
+                console.log(`- Related Query: ${query}`);
+                console.log(`- Context Preview: ${ctx.split('\n').slice(0, 3).join(' | ')}`);
+            });
+        }
+    } else {
+        console.log('No relevant context found in knowledge base');
+    }
+
+    // Enhanced Response Analysis
+    console.log('\n--- Response Analysis ---');
+    console.log(`Response length: ${response.length} characters`);
+    
+    // Check for key elements in the response
+    const hasEquations = response.includes('$$') || response.includes('$');
+    const hasBulletPoints = response.includes('*') || response.includes('-');
+    const hasExamples = response.toLowerCase().includes('example') || response.toLowerCase().includes('for instance');
+    
+    console.log('\nResponse Quality Indicators:');
+    console.log(`- Contains equations: ${hasEquations ? '✅' : '❌'}`);
+    console.log(`- Uses bullet points: ${hasBulletPoints ? '✅' : '❌'}`);
+    console.log(`- Includes examples: ${hasExamples ? '✅' : '❌'}`);
+    
+    console.log('\nResponse Preview:');
+    console.log(response.substring(0, 200) + '...');
+    console.log('========================\n');
+
+    // Return metrics for potential storage
+    return {
+        timestamp,
+        subject,
+        query,
+        contextCount: ragContext ? (ragContext.match(/Previous Interaction/g) || []).length : 0,
+        responseLength: response.length,
+        qualityIndicators: {
+            hasEquations,
+            hasBulletPoints,
+            hasExamples
+        }
+    };
+};
+
+// Add RAG handling functions at the top level
+const handleQueryWithRAG = async (query, subject, userId) => {
+    try {
+        console.log('\n=== RAG Context Retrieval ===');
+        console.log(`Query: ${query}`);
+        console.log(`Subject: ${subject}`);
+        console.log(`User ID: ${userId}`);
+
+        // Get chat context
+        const chatContext = chatContexts.get(userId) || [];
+        console.log('\n--- Chat Context ---');
+        console.log(`Number of previous interactions: ${chatContext.length}`);
+        
+        const recentContext = chatContext
+            .filter(ctx => ctx.subject === subject)
+            .slice(-3) // Use last 3 related interactions
+            .map(ctx => `Previous Query: ${ctx.query}\nPrevious Response: ${ctx.response}`)
+            .join('\n\n');
+        
+        console.log('\nRecent Context:');
+        console.log(recentContext || 'No recent context found');
+
+        // Get RAG context
+        console.log('\n--- RAG Context ---');
+        const ragContext = await getEnhancedRAGContext(query, subject);
+        console.log('RAG Context Retrieved:');
+        console.log(ragContext || 'No RAG context found');
+        
+        // Combine chat context with RAG context
+        const combinedContext = recentContext 
+            ? `${recentContext}\n\n${ragContext || ''}`
+            : ragContext;
+        
+        console.log('\n--- Combined Context ---');
+        console.log(combinedContext || 'No combined context available');
+
+        const systemPrompt = `You are an expert ${subject} tutor. Keep responses concise and clear:
 - Write equations in human-readable form first, then LaTeX
 - Use $$...$$ for display equations, $...$ for inline
 - No newlines around $$ delimiters
 - Include units and dimensions
 - Give brief, practical examples
 - Use bullet points for clarity
-- Keep responses under 150 words unless detailed explanation is requested`,
-          },
-          { role: "user", content: query },
-        ],
-        temperature: 0.3,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    const solution = response.data.choices[0].message.content;
+- Keep responses under 150 words unless detailed explanation is requested
 
-    // Store the query and solution in the user's database
-    if (userId) {
-      await User.findByIdAndUpdate(userId, {
-        $push: {
-          queries: {
-            query,
-            solution,
-            subject: "physics"
-          }
-        }
-      });
+${combinedContext ? `\nRelevant Context from Previous Interactions:\n${combinedContext}\n\nUse this context to provide more accurate and comprehensive responses. If the context is relevant, build upon it and maintain consistency with previous explanations.` : ''}`;
+
+        console.log('\n--- System Prompt with Context ---');
+        console.log(systemPrompt);
+
+        const response = await axios.post(
+            GROQ_API_URL,
+            {
+                model: "llama-3.3-70b-versatile",
+                messages: [
+                    {
+                        role: "system",
+                        content: systemPrompt
+                    },
+                    { role: "user", content: query }
+                ],
+                temperature: 0.3,
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        const solution = response.data.choices[0].message.content;
+        console.log('\n--- Generated Response ---');
+        console.log(solution);
+
+        // Update chat context
+        const updatedContext = manageChatContext(userId, query, solution, subject);
+        console.log('\n--- Updated Chat Context ---');
+        console.log(`Total interactions after update: ${updatedContext.length}`);
+        
+        // Track RAG metrics
+        const metrics = trackRAGMetrics(userId, query, subject, ragContext, solution);
+        console.log('\n--- RAG Metrics ---');
+        console.log(JSON.stringify(metrics, null, 2));
+
+        // Remove the database storage from here since it's handled in the endpoint
+        console.log('\n=== RAG Processing Complete ===\n');
+        return solution;
+    } catch (error) {
+        console.error('\n=== RAG Processing Error ===');
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            response: error.response?.data
+        });
+        throw new Error(`${subject} processing failed: ${error.message}`);
     }
-
-    return solution;
-  } catch (error) {
-    console.error("Groq API Error:", error.response?.data);
-    throw new Error("Physics processing failed: " + error.message);
-  }
 };
 
-app.post("/physics", verifyToken, async (req, res) => {
-  try {
-    const { query } = req.body;
-    if (!query) {
-      return res.status(400).json({ error: "Missing query parameter" });
-    }
-    const response = await handlePhysicsQuery(query, req.user.id);
-    const normalizedResponse = normalizeLatexDelimiters(response);
-    res.json({ response: normalizedResponse });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// --- Mathematics Chatbot ---
+// Update the mathematics endpoint
 app.post("/maths", verifyToken, async (req, res) => {
-  try {
-    const { query } = req.body;
-    const response = await axios.post(
-      GROQ_API_URL,
-      {
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          {
-            role: "system",
-            content: `Maths tutor. Keep responses concise and clear:
-1. Show 1-2 solution methods (unless more requested)
-2. Write equations in human-readable form first, then LaTeX
-3. Use $$...$$ for display equations, $...$ for inline
-4. No newlines around $$ delimiters
-5. Give brief, practical applications
-6. Highlight key steps and common errors
-7. Keep responses under 150 words unless detailed explanation is requested
-
-Format:
-**Problem:** [statement]
-**Solution:** [concise steps]
-**Application:** [brief example]`,
-          },
-          { role: "user", content: query },
-        ],
-        temperature: 0.3,
-      },
-      { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
-    );
-    const solution = response.data.choices[0].message.content;
-
-    // Store the query and solution in the user's database
-    await User.findByIdAndUpdate(req.user.id, {
-      $push: {
-        queries: {
-          query,
-          solution,
-          subject: "maths"
+    try {
+        console.log('Mathematics endpoint called with body:', req.body);
+        
+        const { query, subject } = req.body;
+        if (!query) {
+            console.error('Missing query parameter in request');
+            return res.status(400).json({ 
+                error: "Missing query parameter",
+                details: "The request body must contain a 'query' field"
+            });
         }
-      }
-    });
 
-    const normalizedResponse = normalizeLatexDelimiters(solution);
-    res.json({ response: normalizedResponse });
-  } catch (error) {
-    res.status(500).json({ error: "Math processing failed" });
-  }
+        console.log('Processing mathematics query:', query);
+        console.log('User ID:', req.user.id);
+
+        // Validate user exists
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            console.error('User not found:', req.user.id);
+            return res.status(404).json({ 
+                error: "User not found",
+                details: `No user found with ID: ${req.user.id}`
+            });
+        }
+
+        try {
+            // First try with RAG
+            console.log('Attempting RAG processing');
+            const response = await handleQueryWithRAG(query, "mathematics", req.user.id);
+            console.log('Successfully generated response with RAG');
+            
+            const normalizedResponse = normalizeLatexDelimiters(response);
+            console.log('Response normalized successfully');
+
+            // Store in MongoDB with explicit subject normalization
+            try {
+                const normalizedSubject = normalizeSubject("mathematics");
+                console.log('Storing query with normalized subject:', normalizedSubject);
+                
+                // Create the query object according to the schema
+                const queryObject = {
+                    query,
+                    solution: normalizedResponse,
+                    subject: normalizedSubject,
+                    createdAt: new Date()
+                };
+
+                // Update user document with the new query
+                const updatedUser = await User.findByIdAndUpdate(
+                    req.user.id,
+                    {
+                        $push: {
+                            queries: queryObject
+                        }
+                    },
+                    { 
+                        new: true, 
+                        runValidators: true,
+                        upsert: false
+                    }
+                );
+
+                if (!updatedUser) {
+                    console.error('Failed to update user document');
+                    throw new Error('Failed to store query in database');
+                }
+
+                // Verify the query was stored
+                const storedQuery = updatedUser.queries[updatedUser.queries.length - 1];
+                console.log('Stored query details:', {
+                    subject: storedQuery.subject,
+                    query: storedQuery.query.substring(0, 50) + '...',
+                    createdAt: storedQuery.createdAt
+                });
+
+                console.log('Successfully stored query in MongoDB');
+            } catch (dbError) {
+                console.error('Database update error:', dbError);
+                // Continue with response even if database update fails
+            }
+            
+            res.json({ response: normalizedResponse });
+        } catch (ragError) {
+            console.error('RAG processing error:', {
+                error: ragError.message,
+                stack: ragError.stack,
+                query: query
+            });
+            
+            // Fallback to direct response without RAG
+            console.log('Attempting fallback response without RAG');
+            try {
+                const fallbackResponse = await axios.post(
+                    GROQ_API_URL,
+                    {
+                        model: "llama-3.3-70b-versatile",
+                        messages: [
+                            {
+                                role: "system",
+                                content: `You are an expert mathematics tutor. Structure your responses in the following format:
+
+1. Concept Overview:
+- Start with a clear, concise definition
+- Use simple language first, then technical terms
+- Include key principles
+
+2. Mathematical Formulation:
+- Write equations in human-readable form first
+- Then provide LaTeX format
+- Use $$...$$ for display equations, $...$ for inline
+- No newlines around $$ delimiters
+- Include units and dimensions
+
+3. Key Principles:
+- List fundamental principles involved
+- Explain relationships between variables
+- Include relevant theorems or formulas
+
+4. Example:
+- Provide a practical, step-by-step example
+- Include numerical values
+- Show complete solution process
+
+5. Applications:
+- List 2-3 practical applications
+- Include real-world examples
+- Mention technological uses
+
+Keep responses clear and engaging. Use analogies when helpful.`
+                            },
+                            { role: "user", content: query }
+                        ],
+                        temperature: 0.3,
+                    },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+                            "Content-Type": "application/json",
+                        },
+                    }
+                );
+
+                const fallbackSolution = fallbackResponse.data.choices[0].message.content;
+                const normalizedFallback = normalizeLatexDelimiters(fallbackSolution);
+
+                // Store fallback response in MongoDB with explicit subject normalization
+                try {
+                    const normalizedSubject = normalizeSubject("mathematics");
+                    console.log('Storing fallback response with normalized subject:', normalizedSubject);
+                    
+                    // Create the query object according to the schema
+                    const queryObject = {
+                        query,
+                        solution: normalizedFallback,
+                        subject: normalizedSubject,
+                        createdAt: new Date()
+                    };
+
+                    // Update user document with the fallback query
+                    const updatedUser = await User.findByIdAndUpdate(
+                        req.user.id,
+                        {
+                            $push: {
+                                queries: queryObject
+                            }
+                        },
+                        { 
+                            new: true, 
+                            runValidators: true,
+                            upsert: false
+                        }
+                    );
+
+                    if (!updatedUser) {
+                        console.error('Failed to update user document with fallback response');
+                    } else {
+                        // Verify the fallback query was stored
+                        const storedQuery = updatedUser.queries[updatedUser.queries.length - 1];
+                        console.log('Stored fallback query details:', {
+                            subject: storedQuery.subject,
+                            query: storedQuery.query.substring(0, 50) + '...',
+                            createdAt: storedQuery.createdAt
+                        });
+                        console.log('Successfully stored fallback response in MongoDB');
+                    }
+                } catch (dbError) {
+                    console.error('Database update error for fallback:', dbError);
+                }
+                
+                res.json({ 
+                    response: normalizedFallback,
+                    warning: "RAG processing failed, using direct response"
+                });
+            } catch (fallbackError) {
+                console.error('Fallback response error:', {
+                    error: fallbackError.message,
+                    stack: fallbackError.stack
+                });
+                
+                // Final fallback with minimal response
+                res.json({
+                    response: "I apologize, but I'm having trouble processing your mathematics query at the moment. Please try again in a moment.",
+                    error: "Processing failed",
+                    details: fallbackError.message
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Mathematics endpoint error:', {
+            error: error.message,
+            stack: error.stack,
+            body: req.body,
+            user: req.user
+        });
+        
+        res.status(500).json({ 
+            error: "Mathematics processing failed",
+            details: error.message,
+            type: error.name
+        });
+    }
 });
 
-// --- Chemistry Chatbot ---
+// Update the chemistry endpoint with better response formatting
 app.post("/chemistry", verifyToken, async (req, res) => {
-  try {
-    const { query } = req.body;
-    const response = await axios.post(
-      GROQ_API_URL,
-      {
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          {
-            role: "system",
-            content: `Chemistry tutor. Keep responses concise and clear:
-1. Write chemical formulas in human-readable form first (e.g., "2H2 + O2 → 2H2O")
-2. Then show in LaTeX if needed
-3. Use $$...$$ for display equations, $...$ for inline
-4. No newlines around $$ delimiters
-5. Balance equations stepwise but concisely
-6. Include brief safety notes
-7. Keep responses under 150 words unless detailed explanation is requested
-
-Format:
-**Reaction:** [human-readable equation]
-**Steps:** [key points]
-**Safety:** [brief note]`,
-          },
-          { role: "user", content: query },
-        ],
-        temperature: 0.3,
-      },
-      { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } }
-    );
-    const solution = response.data.choices[0].message.content;
-
-    // Store the query and solution in the user's database
-    await User.findByIdAndUpdate(req.user.id, {
-      $push: {
-        queries: {
-          query,
-          solution,
-          subject: "chemistry",
-          createdAt: new Date(),
+    try {
+        console.log('Chemistry endpoint called with body:', req.body);
+        
+        const { query } = req.body;
+        if (!query) {
+            console.error('Missing query parameter in request');
+            return res.status(400).json({ 
+                error: "Missing query parameter",
+                details: "The request body must contain a 'query' field"
+            });
         }
-      }
-    });
 
-    const normalizedResponse = normalizeLatexDelimiters(solution);
-    res.json({ response: normalizedResponse });
-  } catch (error) {
-    res.status(500).json({ error: "Chemistry processing failed" });
-  }
+        console.log('Processing chemistry query:', query);
+        console.log('User ID:', req.user.id);
+
+        // Validate user exists
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            console.error('User not found:', req.user.id);
+            return res.status(404).json({ 
+                error: "User not found",
+                details: `No user found with ID: ${req.user.id}`
+            });
+        }
+
+        try {
+            const response = await handleQueryWithRAG(query, "chemistry", req.user.id);
+            console.log('Successfully generated response');
+            
+            const normalizedResponse = normalizeLatexDelimiters(response);
+            console.log('Response normalized successfully');
+            
+            res.json({ response: normalizedResponse });
+        } catch (ragError) {
+            console.error('RAG processing error:', {
+                error: ragError.message,
+                stack: ragError.stack,
+                query: query
+            });
+            
+            // Enhanced fallback response with better structure
+            console.log('Attempting fallback response without RAG');
+            const fallbackResponse = await axios.post(
+                GROQ_API_URL,
+                {
+                    model: "llama-3.3-70b-versatile",
+                    messages: [
+                        {
+                            role: "system",
+                            content: `You are an expert chemistry tutor. Structure your responses in the following format:
+
+1. Definition/Overview:
+- Start with a clear, concise definition
+- Use simple language first, then technical terms
+- Include key characteristics
+
+2. Mechanism:
+- Break down the process step by step
+- Use bullet points for clarity
+- Include both text and equations
+- Write equations in human-readable form first, then LaTeX
+- Use $$...$$ for display equations, $...$ for inline
+- No newlines around $$ delimiters
+
+3. Key Features:
+- List important characteristics
+- Include rate-determining factors
+- Mention stereochemistry if relevant
+
+4. Example:
+- Provide a practical, real-world example
+- Include the complete reaction
+- Explain the conditions and outcome
+
+5. Common Applications:
+- List 2-3 practical uses
+- Include industrial or laboratory applications
+
+Keep responses clear and engaging. Use analogies when helpful.`
+                        },
+                        { role: "user", content: query }
+                    ],
+                    temperature: 0.3,
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
+
+            const fallbackSolution = fallbackResponse.data.choices[0].message.content;
+            const normalizedFallback = normalizeLatexDelimiters(fallbackSolution);
+            
+            res.json({ 
+                response: normalizedFallback,
+                warning: "RAG processing failed, using direct response"
+            });
+        }
+    } catch (error) {
+        console.error('Chemistry endpoint error:', {
+            error: error.message,
+            stack: error.stack,
+            body: req.body,
+            user: req.user
+        });
+        
+        res.status(500).json({ 
+            error: "Chemistry processing failed",
+            details: error.message,
+            type: error.name
+        });
+    }
 });
+
 // --- Simple Flowchart Generation Endpoint ---
 app.post("/generate-flowchart", async (req, res) => {
   try {
@@ -642,7 +1084,9 @@ function generateFlowchartHTML(data) {
 app.get("/api/recent-queries/:subject", verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const subject = req.params.subject.toLowerCase();
+    const subject = normalizeSubject(req.params.subject.toLowerCase());
+    console.log('Fetching recent queries for subject:', subject);
+    
     const user = await User.findById(userId);
 
     if (!user) {
@@ -650,7 +1094,7 @@ app.get("/api/recent-queries/:subject", verifyToken, async (req, res) => {
     }
 
     const minQueryLength = 3; // Minimum length for a query to be considered non-generic
-    const genericGreetings = ["hi", "hello", "hey", "heya", "hii", "yo"]; // Common generic greetings
+    const genericGreetings = ["hi", "hello", "hey", "heya", "hii", "yo", "yeah","hola"]; // Common generic greetings
 
     const recentQueries = user.queries
       .filter(
@@ -660,14 +1104,16 @@ app.get("/api/recent-queries/:subject", verifyToken, async (req, res) => {
           !genericGreetings.includes(q.query.trim().toLowerCase())
       )
       .sort((a, b) => b.createdAt - a.createdAt) // Sort by most recent
-      .slice(0, 15); // Get the last 10-15 queries (adjust as needed, e.g., 10 or 15)
+      .slice(0, 15); // Get the last 15 queries
+
+    console.log(`Found ${recentQueries.length} recent queries for subject ${subject}`);
 
     res.json({
       queries: recentQueries.map((q) => ({
         query: q.query,
         createdAt: q.createdAt,
       })),
-    }); // Send only query text and creation time
+    });
   } catch (error) {
     console.error("Error fetching recent queries:", error);
     res.status(500).json({ message: "Failed to fetch recent queries" });
@@ -1200,6 +1646,133 @@ app.post('/api/users/profile-photo', verifyToken, upload.single('photo'), async 
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
+});
+
+// Add a new endpoint to check RAG effectiveness
+app.get("/api/rag-stats", verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Analyze recent queries
+        const recentQueries = user.queries.slice(-10); // Get last 10 queries
+        const stats = {
+            totalQueries: recentQueries.length,
+            queriesWithRAG: recentQueries.filter(q => q.ragContext).length,
+            bySubject: {}
+        };
+
+        // Group by subject
+        recentQueries.forEach(query => {
+            const subject = query.subject;
+            if (!stats.bySubject[subject]) {
+                stats.bySubject[subject] = {
+                    total: 0,
+                    withRAG: 0
+                };
+            }
+            stats.bySubject[subject].total++;
+            if (query.ragContext) {
+                stats.bySubject[subject].withRAG++;
+            }
+        });
+
+        res.json({
+            stats,
+            recentQueries: recentQueries.map(q => ({
+                query: q.query,
+                subject: q.subject,
+                hasRAGContext: !!q.ragContext,
+                createdAt: q.createdAt
+            }))
+        });
+    } catch (error) {
+        console.error("Error fetching RAG stats:", error);
+        res.status(500).json({ error: "Failed to fetch RAG statistics" });
+    }
+});
+
+// Add new endpoint to analyze RAG effectiveness
+app.get("/api/rag-analysis", verifyToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Get recent queries with RAG metrics
+        const recentQueries = user.queries.slice(-20); // Analyze last 20 queries
+        
+        const analysis = {
+            totalQueries: recentQueries.length,
+            queriesWithRAG: recentQueries.filter(q => q.ragContext).length,
+            averageContextCount: 0,
+            qualityTrends: {
+                equations: 0,
+                bulletPoints: 0,
+                examples: 0
+            },
+            bySubject: {}
+        };
+
+        // Calculate metrics
+        let totalContextCount = 0;
+        recentQueries.forEach(query => {
+            if (query.metrics) {
+                totalContextCount += query.metrics.contextCount;
+                
+                // Update quality trends
+                if (query.metrics.qualityIndicators) {
+                    analysis.qualityTrends.equations += query.metrics.qualityIndicators.hasEquations ? 1 : 0;
+                    analysis.qualityTrends.bulletPoints += query.metrics.qualityIndicators.hasBulletPoints ? 1 : 0;
+                    analysis.qualityTrends.examples += query.metrics.qualityIndicators.hasExamples ? 1 : 0;
+                }
+
+                // Group by subject
+                const subject = query.subject;
+                if (!analysis.bySubject[subject]) {
+                    analysis.bySubject[subject] = {
+                        total: 0,
+                        withRAG: 0,
+                        averageContextCount: 0
+                    };
+                }
+                analysis.bySubject[subject].total++;
+                if (query.ragContext) {
+                    analysis.bySubject[subject].withRAG++;
+                }
+            }
+        });
+
+        // Calculate averages
+        analysis.averageContextCount = totalContextCount / recentQueries.length;
+        analysis.qualityTrends.equations = (analysis.qualityTrends.equations / recentQueries.length) * 100;
+        analysis.qualityTrends.bulletPoints = (analysis.qualityTrends.bulletPoints / recentQueries.length) * 100;
+        analysis.qualityTrends.examples = (analysis.qualityTrends.examples / recentQueries.length) * 100;
+
+        // Calculate subject-specific averages
+        Object.keys(analysis.bySubject).forEach(subject => {
+            const subjectData = analysis.bySubject[subject];
+            subjectData.averageContextCount = subjectData.withRAG / subjectData.total;
+        });
+
+        res.json({
+            analysis,
+            recentQueries: recentQueries.map(q => ({
+                query: q.query,
+                subject: q.subject,
+                hasRAGContext: !!q.ragContext,
+                contextCount: q.metrics?.contextCount || 0,
+                qualityIndicators: q.metrics?.qualityIndicators || {},
+                createdAt: q.createdAt
+            }))
+        });
+    } catch (error) {
+        console.error("Error analyzing RAG effectiveness:", error);
+        res.status(500).json({ error: "Failed to analyze RAG effectiveness" });
+    }
 });
 
 // --- Server Start ---
