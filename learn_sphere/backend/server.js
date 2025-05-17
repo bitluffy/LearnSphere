@@ -1146,7 +1146,18 @@ app.post("/api/generate-personalized-quiz", verifyToken, async (req, res) => {
     Ensure all mathematical and scientific expressions are in proper LaTeX format (e.g., $E=mc^2$, $$\sum_{i=1}^n x_i$$).
     The output must be a valid JSON object with a single key "quiz", which is an array of question objects.
     Each question object must have the following structure:
-    { "id": "q1", "question": "Question text with LaTeX?", "options": {"A": "Option A", "B": "Option B", "C": "Option C", "D": "Option D"}, "correctAnswer": "A", "explanation": "Detailed explanation of why A is correct and why B, C, D are incorrect." }
+    {
+      "id": "q1",
+      "question": "Question text with LaTeX?",
+      "options": {
+        "A": "Option A",
+        "B": "Option B",
+        "C": "Option C",
+        "D": "Option D"
+      },
+      "correctAnswer": "A",
+      "explanation": "Detailed explanation of why A is correct and why B, C, D are incorrect. Include relevant formulas and concepts."
+    }
     Do not include any other text, commentary, or formatting outside this JSON structure.
 
     Recent learning topics:
@@ -1177,7 +1188,7 @@ app.post("/api/generate-personalized-quiz", verifyToken, async (req, res) => {
     );
 
     let quizData = response.data.choices[0].message.content;
-    // console.log("Raw quiz data from API:", quizData);
+    console.log("Raw quiz data from API:", quizData);
 
     // Attempt to parse the JSON content
     try {
@@ -1322,7 +1333,10 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
       score: percentageScore,
       totalQuestions: quiz.length,
       correctAnswers: score,
-      questions: questionResults,
+      questions: questionResults.map(q => ({
+        ...q,
+        explanation: q.explanation || "No explanation available for this question."
+      })),
       feedback: feedbackText,
       timestamp: new Date()
     };
@@ -1421,7 +1435,10 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
     res.json({
       success: true,
       score: percentageScore,
-      questionResults,
+      questionResults: questionResults.map(q => ({
+        ...q,
+        explanation: q.explanation || "No explanation available for this question."
+      })),
       feedback: feedbackText,
       progress: {
         totalQuizzes: subjectProgress.totalQuizzes,

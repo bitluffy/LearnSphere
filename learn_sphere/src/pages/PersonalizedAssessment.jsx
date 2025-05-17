@@ -158,7 +158,8 @@ const PersonalizedAssessment = () => {
           id: q.id,
           text: q.text,
           options: q.options,
-          correctAnswer: q.correctAnswer
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation
         }))
       };
 
@@ -388,7 +389,7 @@ const PersonalizedAssessment = () => {
                     
                     <div className="mt-4 p-3 bg-blue-900 bg-opacity-30 border border-blue-700 rounded">
                       <h4 className="font-semibold text-blue-400 mb-1">Explanation:</h4>
-                      <div className="text-gray-300">{renderWithLatex(result.explanation)}</div>
+                      <div className="text-gray-300">{renderWithLatex(result.explanation || "No explanation available for this question.")}</div>
                     </div>
                   </div>
                 ))}
