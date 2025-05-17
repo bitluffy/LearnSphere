@@ -126,6 +126,16 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    profileImage: {
+      url: {
+        type: String,
+        default: "https://res.cloudinary.com/your-cloud-name/image/upload/v1/default-profile.png"
+      },
+      publicId: {
+        type: String,
+        default: null
+      }
+    },
     pronouns: {
       type: String,
       default: "",
