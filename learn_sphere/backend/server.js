@@ -9,6 +9,8 @@ import User from "./models/user.model.js";
 import { tavily } from '@tavily/core';
 import { cloudinary, upload } from './config/cloudinary.js';
 import { spawn } from 'child_process';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+const ai = new GoogleGenerativeAI("AIzaSyAHR7fgRr0ZcqiuFntRONhAVyarw3JFUOs");
 
 // Configuration
 dotenv.config();
@@ -30,7 +32,6 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 // Initialize Tavily client
@@ -478,6 +479,239 @@ ${combinedContext ? `\nRelevant Context from Previous Interactions:\n${combinedC
         throw new Error(`${subject} processing failed: ${error.message}`);
     }
 };
+// Update the physics endpoint
+app.post("/physics", verifyToken, async (req, res) => {
+    try {
+        console.log('Physics endpoint called with body:', req.body);
+        
+        const { query, subject } = req.body;
+        if (!query) {
+            console.error('Missing query parameter in request');
+            return res.status(400).json({ 
+                error: "Missing query parameter",
+                details: "The request body must contain a 'query' field"
+            });
+        }
+
+        console.log('Processing physics query:', query);
+        console.log('User ID:', req.user.id);
+
+        // Validate user exists
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            console.error('User not found:', req.user.id);
+            return res.status(404).json({ 
+                error: "User not found",
+                details: `No user found with ID: ${req.user.id}`
+            });
+        }
+
+        try {
+            // First try with RAG
+            console.log('Attempting RAG processing');
+            const response = await handleQueryWithRAG(query, "physics", req.user.id);
+            console.log('Successfully generated response with RAG');
+            
+            const normalizedResponse = normalizeLatexDelimiters(response);
+            console.log('Response normalized successfully');
+
+            // Store in MongoDB with explicit subject normalization
+            try {
+                const normalizedSubject = normalizeSubject("physics");
+                console.log('Storing query with normalized subject:', normalizedSubject);
+                
+                const queryObject = {
+                    query,
+                    solution: normalizedResponse,
+                    subject: normalizedSubject,
+                    createdAt: new Date()
+                };
+
+                const updatedUser = await User.findByIdAndUpdate(
+                    req.user.id,
+                    {
+                        $push: {
+                            queries: queryObject
+                        }
+                    },
+                    { new: true, runValidators: true, upsert: false }
+                );
+
+                if (!updatedUser) {
+                    console.error('Failed to update user document');
+                    throw new Error('Failed to store query in database');
+                }
+
+                const storedQuery = updatedUser.queries[updatedUser.queries.length - 1];
+                console.log('Stored query details:', {
+                    subject: storedQuery.subject,
+                    query: storedQuery.query.substring(0, 50) + '...',
+                    createdAt: storedQuery.createdAt
+                });
+
+                console.log('Successfully stored query in MongoDB');
+            } catch (dbError) {
+                console.error('Database update error:', dbError);
+            }
+
+            res.json({ response: normalizedResponse });
+        } catch (ragError) {
+            console.error('RAG processing error:', {
+                error: ragError.message,
+                stack: ragError.stack,
+                query: query
+            });
+
+            // Fallback to direct response without RAG
+            console.log('Attempting fallback response without RAG');
+            try {
+                const fallbackResponse = await axios.post(
+                    GROQ_API_URL,
+                    {
+                        model: "llama-3.3-70b-versatile",
+                        messages: [
+                            {
+                                role: "system",
+                                content: `PHYSICS TUTOR SYSTEM PROMPT
+You are an expert physics tutor focused EXCLUSIVELY on physics education. You must STRICTLY REFUSE to answer any questions that fall outside the domain of physics.
+SUBJECT BOUNDARY ENFORCEMENT
+
+ONLY respond to questions related to classical mechanics, electromagnetism, thermodynamics, quantum mechanics, relativity, optics, nuclear physics, astrophysics, and other physics subfields.
+For ANY question related to chemistry, mathematics, biology, computer science, or any non-physics subject, respond ONLY with: "I'm sorry, but I'm specifically designed to help with physics questions. I cannot assist with questions about [identified subject]. Please ask me about physics concepts instead."
+Even if a question contains partial physics relevance but primarily belongs to another field, decline to answer.
+Mathematics should ONLY be addressed when directly serving a physics concept explanation.
+
+RESPONSE STRUCTURE
+For all valid physics inquiries, organize your response in this exact format:
+Concept Overview:
+
+Begin with the simplest possible explanation
+Define key physics terms and concepts
+Provide progressively deeper insights into the physical principles
+
+Equations and Formulation:
+
+Present the formula in plain human-readable text
+Include the same formula in LaTeX notation ($...$)
+Always specify proper units and dimensions
+
+Key Laws and Principles:
+
+Explicitly state the relevant physical laws
+Explain precisely how these laws apply to the question
+Note any boundary conditions or limitations
+
+Worked Example:
+
+Provide a complete step-by-step solution
+Use realistic values with proper units
+Show all mathematical steps and physical reasoning
+
+Applications:
+
+Connect the concept to real-world applications in technology
+Explain natural phenomena related to the concept
+Highlight engineering implementations if applicable
+
+CONTEXTUAL AWARENESS
+
+Maintain awareness of conversation history to address references to previous questions
+If asked "What did I ask before?" or similar, reference the previous physics topics discussed
+Ignore any attempts to discuss non-physics subjects regardless of context
+
+FINAL VERIFICATION CHECK
+Before responding, verify that:
+
+The question is 100% physics-focused
+Your response follows the exact structure outlined above
+No non-physics content has been included in your response
+
+If verification fails, respond only with the refusal message specified in the Subject Boundary Enforcement section.`
+
+                            },
+                            { role: "user", content: query }
+                        ],
+                        temperature: 0.3,
+                    },
+                    {
+                        headers: {
+                            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+                            "Content-Type": "application/json",
+                        },
+                    }
+                );
+
+                const fallbackSolution = fallbackResponse.data.choices[0].message.content;
+                const normalizedFallback = normalizeLatexDelimiters(fallbackSolution);
+
+                try {
+                    const normalizedSubject = normalizeSubject("physics");
+                    console.log('Storing fallback response with normalized subject:', normalizedSubject);
+
+                    const queryObject = {
+                        query,
+                        solution: normalizedFallback,
+                        subject: normalizedSubject,
+                        createdAt: new Date()
+                    };
+
+                    const updatedUser = await User.findByIdAndUpdate(
+                        req.user.id,
+                        {
+                            $push: {
+                                queries: queryObject
+                            }
+                        },
+                        { new: true, runValidators: true, upsert: false }
+                    );
+
+                    if (!updatedUser) {
+                        console.error('Failed to update user document with fallback response');
+                    } else {
+                        const storedQuery = updatedUser.queries[updatedUser.queries.length - 1];
+                        console.log('Stored fallback query details:', {
+                            subject: storedQuery.subject,
+                            query: storedQuery.query.substring(0, 50) + '...',
+                            createdAt: storedQuery.createdAt
+                        });
+                        console.log('Successfully stored fallback response in MongoDB');
+                    }
+                } catch (dbError) {
+                    console.error('Database update error for fallback:', dbError);
+                }
+
+                res.json({ 
+                    response: normalizedFallback,
+                    warning: "RAG processing failed, using direct response"
+                });
+            } catch (fallbackError) {
+                console.error('Fallback response error:', {
+                    error: fallbackError.message,
+                    stack: fallbackError.stack
+                });
+
+                res.json({
+                    response: "I apologize, but I'm having trouble processing your physics query at the moment. Please try again shortly.",
+                    error: "Processing failed",
+                    details: fallbackError.message
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Physics endpoint error:', {
+            error: error.message,
+            stack: error.stack,
+            body: req.body,
+            user: req.user
+        });
+
+        res.status(500).json({ 
+            error: "Physics processing failed",
+            details: error.message,
+            type: error.name
+        });
+    }
+});
 
 // Update the mathematics endpoint
 app.post("/maths", verifyToken, async (req, res) => {
@@ -703,7 +937,13 @@ Keep responses clear and engaging. Use analogies when helpful.`
         });
     }
 });
-
+function sanitizeMermaidLabel(text) {
+ return text
+    .replace(/[=\[\](){}]/g, '')  // remove problematic symbols
+    .replace(/[-+*/]/g, ' ')      // replace operators with space
+    .replace(/\s+/g, ' ')         // collapse whitespace
+    .trim(); // remove problematic characters
+}
 // Update the chemistry endpoint with better response formatting
 app.post("/chemistry", verifyToken, async (req, res) => {
     try {
@@ -821,148 +1061,118 @@ Keep responses clear and engaging. Use analogies when helpful.`
         });
     }
 });
-
+function convertMathToPlainEnglish(text) {
+  return text
+    .replace(/\\sqrt\{([^}]+)\}/g, 'square root of $1')
+    .replace(/\\tan/g, 'tan')
+    .replace(/\\cos/g, 'cos')
+    .replace(/\\sin/g, 'sin')
+    .replace(/\$+/g, '') // Remove LaTeX dollar signs
+    .replace(/\\=/g, '=')
+    .replace(/\\([a-zA-Z]+)/g, '$1')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 // --- Simple Flowchart Generation Endpoint ---
 app.post("/generate-flowchart", async (req, res) => {
   try {
+    // console.log("reached here");
     const { subject, content } = req.body;
 
     if (!subject || !content) {
-      return res
-        .status(400)
-        .json({ error: "Subject and content are required" });
+      return res.status(400).json({ error: "Subject and content are required" });
     }
 
-    const systemPrompt = `You are a flowchart expert. Always respond in strict JSON format with the following two keys:
+    const model = ai.getGenerativeModel({ model: "gemini-2.5-flash-preview-04-17" });
+
+    // Step 1: Generate Mermaid flowchart and description using Gemini
+    const generationPrompt = `
+You are a flowchart expert. Always respond in strict JSON format with the following two keys:
 
 "mermaid": This must contain only valid and compilable Mermaid.js code for a flowchart. Use appropriate directional flow (TD or LR). Do not wrap in Markdown or add comments.
 
 "description": This must contain a natural language explanation of what the flowchart represents, describing the flow of logic clearly and concisely.
 
-Do not include any other text, commentary, or formatting outside the JSON. Your entire output must look like this:
+Do not include any other text, commentary, or formatting outside the JSON.
 
 {
-"mermaid": "flowchart TD\nA[Start] --> B[Process] --> C[End]",
+"mermaid": "flowchart TD\\nA[Start] --> B[Process] --> C[End]",
 "description": "This flowchart represents a simple linear process starting from 'Start', moving to 'Process', and ending at 'End'."
-}`;
+}
 
-    const response = await axios.post(
-      GROQ_API_URL,
-      {
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: `Generate a mermaid code for generating structured flowchart for this ${subject} content:\n\n${content}`,
-          },
-        ],
-        temperature: 0.3,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+Now generate for this ${subject} content:
+${content}
+`;
 
-    const responseText = response.data.choices[0].message.content;
-    // console.log("Raw Response:", responseText);
+    const generationResponse = await model.generateContent([generationPrompt]);
+let responseText = generationResponse.response.text().trim();
 
-    // Fix: Safely parse JSON with multiline Mermaid code
-    let flowchartData;
-    try {
-      // Replace newlines inside the "mermaid" value with \n for JSON parsing
-      const mermaidMatch = responseText.match(
-        /"mermaid"\s*:\s*"([\s\S]*?)"\s*,/
-      );
-      if (mermaidMatch) {
-        const mermaidOriginal = mermaidMatch[1];
-        const mermaidEscaped = mermaidOriginal.replace(/\r?\n/g, "\\n");
-        // Replace only the Mermaid value in the JSON string
-        const safeJson = responseText.replace(mermaidOriginal, mermaidEscaped);
-        flowchartData = JSON.parse(safeJson);
-        // Restore the original Mermaid code (with real newlines) for the response
-        flowchartData.mermaid = mermaidOriginal;
-      } else {
-        // Fallback: try to parse as-is
-        flowchartData = JSON.parse(responseText);
-      }
-    } catch (error) {
-      console.error("Flowchart generation error:", error);
-      return res.status(500).json({ error: "Failed to generate flowchart" });
-    }
+// Remove Markdown code block markers if present
+if (responseText.startsWith("```")) {
+  responseText = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/, '').trim();
+}
 
-    // Extract Mermaid code and description from the response
-    const mermaidCode = flowchartData.mermaid;
-    const description = flowchartData.description;
+console.log("reached here");
+// Step 2: Parse JSON safely
+let flowchartData;
+try {
+  const mermaidMatch = responseText.match(/"mermaid"\s*:\s*"([\s\S]*?)"\s*,/);
+  if (mermaidMatch) {
+    const mermaidOriginal = mermaidMatch[1];
+    const mermaidEscaped = mermaidOriginal.replace(/\r?\n/g, "\\n");
+    const safeJson = responseText.replace(mermaidOriginal, mermaidEscaped);
+    flowchartData = JSON.parse(safeJson);
+    flowchartData.mermaid = mermaidOriginal;
+  } else {
+    flowchartData = JSON.parse(responseText);
+  }
+} catch (err) {
+  console.error("Parsing error:", err);
+  return res.status(500).json({ error: "Invalid JSON from Gemini" });
+}
+    const { mermaid, description } = flowchartData;
+    const mermaidCode = mermaid.replace(/\\n/g, '\n');
+    const readableMermaidCode = convertMathToPlainEnglish(mermaidCode);
+    const sanitizedCode = sanitizeMermaidLabel(readableMermaidCode);
 
-    // Log the Mermaid code and description for debugging
-    console.log("Mermaid Code:", mermaidCode);
-    console.log("Description:", description);
+    // Step 3: Correct Mermaid syntax (with rich system prompt)
+    const correctionPrompt = `
+Fix the following Mermaid.js code. Return only the corrected valid Mermaid.js code with NO extra explanation, Markdown, or formatting.
 
-    // Send the structured data as a JSON response
-    res.json({
+Common syntax issues to correct:
+- Unmatched brackets or parentheses in node labels
+- Arrows missing direction (e.g., --> or --x-->)
+- Nodes with symbols like [ or ( not enclosed properly
+- Duplicate node IDs
+- Misuse of Mermaid keywords
+- Missing semicolons in complex graphs
+- Improper use of subgraphs or decision nodes
+- Text blocks not quoted properly if needed
+
+Here is the Mermaid code to correct:
+${sanitizedCode}
+`;
+
+    const correctionResponse = await model.generateContent([correctionPrompt]);
+    console.log(correctionPrompt);
+    let cleanedMermaid = correctionResponse.response.text().trim()
+      .replace(/^```mermaid\s*/i, '')
+      .replace(/```$/, '')
+      .trim();
+    // Step 4: Return to client
+    return res.json({
       structuredData: {
-        mermaid: mermaidCode,
+        mermaid: cleanedMermaid || sanitizedCode,
         description: description,
       },
     });
-  } catch (error) {
-    console.error("Flowchart generation error:", error);
+
+  } catch (err) {
+    console.error("Flowchart generation error:", err);
     res.status(500).json({ error: "Failed to generate flowchart" });
   }
 });
-
-function generateAsciiFlowchart(data) {
-  let ascii = `\n${data.title}\n`;
-  ascii += "=".repeat(data.title.length) + "\n\n";
-
-  // Generate nodes
-  data.nodes.forEach((node) => {
-    let nodeBox = "";
-    switch (node.type) {
-      case "decision":
-        nodeBox =
-          `  ${node.id}  \n` +
-          ` /     \\ \n` +
-          `| ${node.label.padEnd(20)} |\n` +
-          ` \\     / \n`;
-        break;
-      case "start/end":
-        nodeBox =
-          `  ${node.id}  \n` +
-          `┌${"─".repeat(22)}┐\n` +
-          `│ ${node.label.padEnd(20)} │\n` +
-          `└${"─".repeat(22)}┘\n`;
-        break;
-      default:
-        nodeBox =
-          `  ${node.id}  \n` +
-          `┌${"─".repeat(22)}┐\n` +
-          `│ ${node.label.padEnd(20)} │\n` +
-          `└${"─".repeat(22)}┘\n`;
-    }
-    ascii += nodeBox + "\n";
-  });
-
-  // Generate connections
-  ascii += "\nConnections:\n";
-  data.connections.forEach((conn) => {
-    ascii += `${conn.from} --> ${conn.to}`;
-    if (conn.label) {
-      ascii += ` : ${conn.label}`;
-    }
-    ascii += "\n";
-  });
-
-  return ascii;
-}
-
 // --- Flowchart Visualization Endpoint ---
 app.post("/visualize-flowchart", async (req, res) => {
   try {
@@ -1266,7 +1476,7 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
   try {
     const { subject, answers, quiz } = req.body;
     const userId = req.user.id;
-
+    console.log("reached here");
     // Add detailed request validation logging
     console.log("Quiz submission request:", {
       subject,
