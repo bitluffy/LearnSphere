@@ -1,18 +1,19 @@
 import React from "react";
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from 'axios';
 
 const navigation = [
-  { name: "Home", href: "/Home", current: true },
+  { name: "Home", href: "/Home", current: false },
   { name: "Physics", href: "/Physics", current: false },
   { name: "Chemistry", href: "/Chemistry", current: false },
   { name: "Maths", href: "/Maths", current: false },
-  { name: "Assessment", href:"/PersonalizedAssisstant",current: false},
+  { name: "Assessment", href:"/PersonalizedAssisstant", current: false},
 ];
 
 export default function Navbar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -22,25 +23,28 @@ export default function Navbar() {
   const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen);
   const toggleProfileMenu = () => setIsProfileMenuOpen(!isProfileMenuOpen);
 
+  // Update current navigation based on the current path
   useEffect(() => {
-    // Update current navigation based on the current path
-    const path = window.location.pathname;
+    const path = location.pathname;
     setCurrentNav(
       navigation.map((item) => ({
         ...item,
         current: item.href === path,
       }))
     );
-  }, []);
+  }, [location.pathname]);
 
   const handleNavigation = (href) => {
-    navigate(href);
+    // Update navigation state
     setCurrentNav(
-      currentNav.map((item) => ({
+      navigation.map((item) => ({
         ...item,
         current: item.href === href,
       }))
     );
+    
+    // Navigate to the new path
+    navigate(href, { replace: true });
   };
 
   // Fetch user data including profile photo
@@ -144,8 +148,8 @@ export default function Navbar() {
           {/* Logo and navigation */}
           <div className="flex-1 flex items-center justify-center md:justify-start">
             <div
-              className="flex-shrink-0 group"
-              onClick={() => navigate("/Home")}
+              className="flex-shrink-0 group cursor-pointer"
+              onClick={() => handleNavigation("/Home")}
             >
               <svg
                 className="h-10 w-auto group-hover:scale-110 transition-all duration-300"
@@ -180,10 +184,10 @@ export default function Navbar() {
             </div>
             <div className="hidden md:flex ml-10 space-x-1">
               {currentNav.map((item) => (
-                <a
+                <button
                   key={item.name}
                   onClick={() => handleNavigation(item.href)}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300 cursor-pointer
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-300
                     relative overflow-hidden group
                     ${
                       item.current
@@ -197,7 +201,7 @@ export default function Navbar() {
                       item.current ? "opacity-100" : ""
                     }`}
                   />
-                </a>
+                </button>
               ))}
             </div>
           </div>
