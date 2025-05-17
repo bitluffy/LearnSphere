@@ -258,12 +258,20 @@ export default function Navbar() {
                 </div>
               </>
             ) : (
-              <button
-                onClick={() => navigate("/")}
-                className="px-4 py-2 text-sm font-medium text-blue-300 hover:text-blue-100 hover:bg-gray-800 rounded-lg transition-all duration-300"
-              >
-                Sign in
-              </button>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => navigate("/signup")}
+                  className="px-4 py-2 text-sm font-medium text-blue-300 hover:text-blue-100 hover:bg-gray-800 rounded-lg transition-all duration-300"
+                >
+                  Sign up
+                </button>
+                <button
+                  onClick={() => navigate("/login")}
+                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-all duration-300"
+                >
+                  Login
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -289,6 +297,28 @@ export default function Navbar() {
                 {item.name}
               </a>
             ))}
+            {!isLoggedIn && (
+              <div className="flex flex-col space-y-2 mt-4 pt-4 border-t border-gray-700">
+                <button
+                  onClick={() => {
+                    navigate("/signup");
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="px-3 py-2 text-base font-medium text-blue-300 hover:text-blue-100 hover:bg-gray-800 rounded-md"
+                >
+                  Sign up
+                </button>
+                <button
+                  onClick={() => {
+                    navigate("/login");
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="px-3 py-2 text-base font-medium bg-blue-600 text-white hover:bg-blue-700 rounded-md"
+                >
+                  Login
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
