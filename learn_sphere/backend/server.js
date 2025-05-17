@@ -744,8 +744,43 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
     const { subject, answers, quiz } = req.body;
     const userId = req.user.id;
 
+    // Add detailed request validation logging
+    console.log("Quiz submission request:", {
+      subject,
+      answersCount: answers ? Object.keys(answers).length : 0,
+      quizLength: quiz ? quiz.length : 0,
+      userId
+    });
+
     if (!subject || !answers || !quiz || !Array.isArray(quiz)) {
-      return res.status(400).json({ message: "Invalid quiz submission data" });
+      console.error("Invalid quiz submission data:", {
+        hasSubject: !!subject,
+        hasAnswers: !!answers,
+        hasQuiz: !!quiz,
+        isQuizArray: Array.isArray(quiz)
+      });
+      return res.status(400).json({ 
+        message: "Invalid quiz submission data",
+        details: {
+          hasSubject: !!subject,
+          hasAnswers: !!answers,
+          hasQuiz: !!quiz,
+          isQuizArray: Array.isArray(quiz)
+        }
+      });
+    }
+
+    // Validate subject
+    const validSubjects = ["physics", "chemistry", "mathematics"];
+    const normalizedSubject = subject.toLowerCase();
+    if (!validSubjects.includes(normalizedSubject)) {
+      return res.status(400).json({
+        message: "Invalid subject",
+        details: {
+          provided: subject,
+          valid: validSubjects
+        }
+      });
     }
 
     let score = 0;
@@ -760,7 +795,7 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
         questionText: question.text,
         userAnswer,
         correctAnswer: question.correctAnswer,
-        correct: isCorrect,
+        isCorrect,
         options: question.options,
         explanation: question.explanation || "No explanation available for this question."
       };
@@ -769,7 +804,7 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
     const percentageScore = (score / quiz.length) * 100;
 
     // Generate feedback using Groq API
-    const feedbackPrompt = `The user has completed a quiz on ${subject} with a score of ${percentageScore}%.
+    const feedbackPrompt = `The user has completed a quiz on ${normalizedSubject} with a score of ${percentageScore}%.
     Provide constructive feedback and suggest areas for improvement based on the following topics they were quizzed on:
     ${quiz.map((q) => `- ${q.text.substring(0, 100)}...`).join("\n")}
     Keep the feedback concise, encouraging, and focused on learning. Suggest 2-3 specific topics or concepts to review if the score is below 70%.
@@ -797,32 +832,169 @@ app.post("/api/submit-personalized-quiz", verifyToken, async (req, res) => {
       feedbackResponse.data.choices[0].message.content
     );
 
-    // Store quiz results in the user's database
-    await User.findByIdAndUpdate(userId, {
-      $push: {
-        assessments: {
-          subject,
-          score: percentageScore,
-          results: questionResults,
-          feedback: feedbackText,
-          quizTitle: `Personalized ${
-            subject.charAt(0).toUpperCase() + subject.slice(1)
-          } Quiz`,
-          timestamp: new Date(),
-        },
-      },
+    // Create quiz result object
+    const quizResult = {
+      quizId: `quiz_${Date.now()}`,
+      subject: normalizedSubject,
+      score: percentageScore,
+      totalQuestions: quiz.length,
+      correctAnswers: score,
+      questions: questionResults,
+      feedback: feedbackText,
+      timestamp: new Date()
+    };
+
+    // Update user's quiz results and progress
+    const user = await User.findById(userId);
+    if (!user) {
+      console.error("User not found:", userId);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Initialize arrays if they don't exist
+    if (!user.quizResults) {
+      user.quizResults = [];
+    }
+
+    // Add quiz result
+    user.quizResults.push(quizResult);
+
+    // Initialize subjectProgress if it doesn't exist
+    if (!user.subjectProgress) {
+      user.subjectProgress = {
+        physics: { subject: "physics", totalQuizzes: 0, averageScore: 0, highestScore: 0, lastQuizDate: new Date(), progressHistory: [] },
+        chemistry: { subject: "chemistry", totalQuizzes: 0, averageScore: 0, highestScore: 0, lastQuizDate: new Date(), progressHistory: [] },
+        mathematics: { subject: "mathematics", totalQuizzes: 0, averageScore: 0, highestScore: 0, lastQuizDate: new Date(), progressHistory: [] }
+      };
+    }
+
+    // Update subject progress
+    const subjectProgress = user.subjectProgress[normalizedSubject];
+    if (!subjectProgress) {
+      console.error("Subject progress not initialized for:", normalizedSubject);
+      return res.status(500).json({ 
+        message: "Subject progress not initialized",
+        details: { subject: normalizedSubject }
+      });
+    }
+
+    // Update progress statistics
+    subjectProgress.totalQuizzes += 1;
+    subjectProgress.lastQuizDate = new Date();
+    
+    // Calculate new average score
+    const totalScore = (subjectProgress.averageScore * (subjectProgress.totalQuizzes - 1)) + percentageScore;
+    subjectProgress.averageScore = totalScore / subjectProgress.totalQuizzes;
+    
+    // Update highest score if needed
+    if (percentageScore > subjectProgress.highestScore) {
+      subjectProgress.highestScore = percentageScore;
+    }
+
+    // Initialize progressHistory if it doesn't exist
+    if (!subjectProgress.progressHistory) {
+      subjectProgress.progressHistory = [];
+    }
+
+    // Add to progress history
+    subjectProgress.progressHistory.push({
+      date: new Date(),
+      score: percentageScore,
+      quizCount: subjectProgress.totalQuizzes
     });
 
+    // Keep only last 10 progress history entries
+    if (subjectProgress.progressHistory.length > 10) {
+      subjectProgress.progressHistory = subjectProgress.progressHistory.slice(-10);
+    }
+
+    try {
+      // Use findByIdAndUpdate instead of save to avoid validation issues
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        {
+          $push: { quizResults: quizResult },
+          $set: {
+            [`subjectProgress.${normalizedSubject}`]: subjectProgress
+          }
+        },
+        { new: true, runValidators: true }
+      );
+
+      if (!updatedUser) {
+        throw new Error("Failed to update user document");
+      }
+
+      console.log("Quiz results saved successfully for user:", userId);
+    } catch (saveError) {
+      console.error("Error saving quiz results:", saveError);
+      return res.status(500).json({ 
+        message: "Failed to save quiz results",
+        details: saveError.message,
+        stack: saveError.stack
+      });
+    }
+
     res.json({
+      success: true,
       score: percentageScore,
       questionResults,
       feedback: feedbackText,
+      progress: {
+        totalQuizzes: subjectProgress.totalQuizzes,
+        averageScore: subjectProgress.averageScore,
+        highestScore: subjectProgress.highestScore,
+        progressHistory: subjectProgress.progressHistory
+      }
     });
   } catch (error) {
-    console.error("Error submitting quiz:", error);
-    res.status(500).json({ message: "Failed to submit quiz" });
+    console.error("Error submitting quiz:", {
+      error: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+    res.status(500).json({ 
+      message: "Failed to submit quiz",
+      details: error.message,
+      type: error.name
+    });
   }
 });
+
+// Add new endpoint to get progress data for graphs
+app.get("/api/progress/:subject", verifyToken, async (req, res) => {
+  try {
+    const { subject } = req.params;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const subjectKey = subject.toLowerCase();
+    const progress = user.subjectProgress[subjectKey];
+
+    if (!progress) {
+      return res.status(404).json({ message: "Progress data not found for this subject" });
+    }
+
+    res.json({
+      totalQuizzes: progress.totalQuizzes,
+      averageScore: progress.averageScore,
+      highestScore: progress.highestScore,
+      progressHistory: progress.progressHistory,
+      recentQuizzes: user.quizResults
+        .filter(quiz => quiz.subject === subjectKey)
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 5)
+    });
+  } catch (error) {
+    console.error("Error fetching progress:", error);
+    res.status(500).json({ message: "Failed to fetch progress data" });
+  }
+});
+
 // --- Web Crawling Endpoint ---
 app.post("/api/web-search", verifyToken, async (req, res) => {
   try {

@@ -13,6 +13,14 @@ const PersonalizedAssessment = () => {
   const [questionResults, setQuestionResults] = useState([]);
   const [feedback, setFeedback] = useState("");
   const [recentQueries, setRecentQueries] = useState([]);
+  const [error, setError] = useState(null);
+
+  // Map frontend subject names to backend subject names
+  const subjectMapping = {
+    physics: "physics",
+    chemistry: "chemistry",
+    maths: "mathematics"
+  };
 
   // Fetch user's recent queries when component mounts or subject changes
   useEffect(() => {
@@ -122,12 +130,35 @@ const PersonalizedAssessment = () => {
   };
 
   const submitQuiz = async () => {
+    setError(null);
     try {
       const token = localStorage.getItem("token");
       if (!token) {
-        alert("Please log in to submit the quiz");
-        return;
+        throw new Error("Please log in to submit the quiz");
       }
+
+      // Validate that all questions have been answered
+      const unansweredQuestions = quiz.questions.filter(
+        question => !userAnswers[question.id]
+      );
+
+      if (unansweredQuestions.length > 0) {
+        throw new Error(`Please answer all questions. ${unansweredQuestions.length} question(s) remaining.`);
+      }
+
+      // Prepare the quiz submission payload
+      const submissionData = {
+        subject: subjectMapping[selectedSubject],
+        answers: userAnswers,
+        quiz: quiz.questions.map(q => ({
+          id: q.id,
+          text: q.text,
+          options: q.options,
+          correctAnswer: q.correctAnswer
+        }))
+      };
+
+      console.log("Submitting quiz with data:", submissionData);
 
       const response = await fetch(
         "http://localhost:3000/api/submit-personalized-quiz",
@@ -137,26 +168,24 @@ const PersonalizedAssessment = () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            subject: selectedSubject,
-            answers: userAnswers,
-            quiz: quiz.questions,  // Send the questions array instead of the entire quiz object
-          }),
+          body: JSON.stringify(submissionData),
         }
       );
 
+      const result = await response.json();
+
       if (!response.ok) {
-        throw new Error("Failed to submit quiz");
+        throw new Error(result.message || "Failed to submit quiz");
       }
 
-      const result = await response.json();
       setScore(result.score);
       setQuestionResults(result.questionResults);
       setFeedback(result.feedback);
       setShowResults(true);
     } catch (error) {
       console.error("Error submitting quiz:", error);
-      alert("Failed to submit quiz. Please try again.");
+      setError(error.message);
+      alert(error.message);
     }
   };
 
@@ -169,9 +198,16 @@ const PersonalizedAssessment = () => {
             Personalized Assessment
           </h1>
 
+          {/* Error Display */}
+          {error && (
+            <div className="mb-4 p-4 bg-red-900 text-white rounded-lg">
+              {error}
+            </div>
+          )}
+
           {/* Subject Selection */}
           <div className="mb-8 flex justify-center gap-4">
-            {["physics", "chemistry", "maths"].map((subject) => (
+            {Object.keys(subjectMapping).map((subject) => (
               <button
                 key={subject}
                 onClick={() => setSelectedSubject(subject)}
