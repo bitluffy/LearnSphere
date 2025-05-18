@@ -16,9 +16,13 @@ const ai = new GoogleGenerativeAI("AIzaSyAHR7fgRr0ZcqiuFntRONhAVyarw3JFUOs");
 dotenv.config();
 const app = express();
 
+// Increase payload size limit and add compression
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 // CORS configuration
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'], // Allow both localhost and IP
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -30,8 +34,6 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 // Initialize Tavily client
@@ -1342,6 +1344,14 @@ app.post("/api/generate-personalized-quiz", verifyToken, async (req, res) => {
       });
     }
 
+    // Add validation for minimum number of queries
+    if (queries.length < 4) {
+      return res.status(400).json({
+        message: `At least 4 prompts are required to generate a quiz. You have ${queries.length} prompt${queries.length !== 1 ? 's' : ''}.`,
+        quiz: { questions: [] }
+      });
+    }
+
     // Extract just the query text for the Groq API prompt
     const queryTexts = queries.map((q) => q.query);
     
@@ -2090,6 +2100,109 @@ app.get("/api/rag-analysis", verifyToken, async (req, res) => {
     } catch (error) {
         console.error("Error analyzing RAG effectiveness:", error);
         res.status(500).json({ error: "Failed to analyze RAG effectiveness" });
+    }
+});
+
+// Add speech-to-text function
+const convertSpeechToText = async (audioData) => {
+    try {
+        console.log('Converting speech to text...');
+        
+        const response = await axios.post(
+            GROQ_API_URL,
+            {
+                model: "llama-3.3-70b-versatile",
+                messages: [
+                    {
+                        role: "system",
+                        content: `You are a speech-to-text expert. Your task is to:
+1. Convert the provided audio data to text
+2. Maintain proper punctuation and formatting
+3. Handle mathematical and scientific terms accurately
+4. Preserve LaTeX notation if present in speech
+5. Return ONLY the transcribed text without any additional commentary or formatting`
+                    },
+                    {
+                        role: "user",
+                        content: `Convert this audio data to text: ${audioData}`
+                    }
+                ],
+                temperature: 0.3,
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        const transcribedText = response.data.choices[0].message.content;
+        console.log('Speech successfully converted to text');
+        return transcribedText;
+    } catch (error) {
+        console.error('Speech-to-text conversion error:', error);
+        throw new Error('Failed to convert speech to text');
+    }
+};
+
+// Add speech-to-text endpoint
+app.post("/api/speech-to-text", verifyToken, async (req, res) => {
+    try {
+        const { audioData, subject } = req.body;
+        
+        if (!audioData) {
+            return res.status(400).json({
+                error: "Missing audio data",
+                details: "The request must include audio data"
+            });
+        }
+
+        console.log('Processing speech-to-text request');
+        console.log('Subject:', subject);
+        console.log('User ID:', req.user.id);
+
+        // Convert speech to text
+        const transcribedText = await convertSpeechToText(audioData);
+        
+        // Store the transcription in the user's database
+        try {
+            const normalizedSubject = normalizeSubject(subject || "other");
+            const queryObject = {
+                query: transcribedText,
+                solution: "Speech transcription",
+                subject: normalizedSubject,
+                createdAt: new Date(),
+                isTranscription: true
+            };
+
+            await User.findByIdAndUpdate(
+                req.user.id,
+                {
+                    $push: {
+                        queries: queryObject
+                    }
+                },
+                { new: true, runValidators: true }
+            );
+
+            console.log('Successfully stored transcription in database');
+        } catch (dbError) {
+            console.error('Database update error:', dbError);
+            // Continue even if database update fails
+        }
+
+        res.json({
+            success: true,
+            transcribedText,
+            subject: subject || "other"
+        });
+    } catch (error) {
+        console.error('Speech-to-text endpoint error:', error);
+        res.status(500).json({
+            error: "Speech-to-text processing failed",
+            details: error.message
+        });
     }
 });
 

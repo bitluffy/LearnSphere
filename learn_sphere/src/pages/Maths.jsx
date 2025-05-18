@@ -85,8 +85,17 @@ const Maths = () => {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ query: userPrompt }),
+            body: JSON.stringify({ 
+              query: userPrompt,
+              subject: "mathematics"
+            }),
           });
+          
+          if (!res.ok) {
+            const errorData = await res.json();
+            throw new Error(errorData.error || "Web search failed");
+          }
+          
           const data = await res.json();
           if (data.success) {
             const responseText = `Web Search Results:\n${data.data.answer || "No direct answer found."}\n\nSources:\n${data.data.sources?.map(source => `- ${source.title}: ${source.url}`).join('\n') || "No sources available."}`;

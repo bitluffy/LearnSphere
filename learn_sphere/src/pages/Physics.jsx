@@ -15,6 +15,9 @@ const Physics = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [flowchartData, setFlowchartData] = useState(null);
   const [isWebSearch, setIsWebSearch] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState(null);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(true);
   const subject = "Physics";
   const storageKey = "physicsChat";
 
@@ -37,6 +40,77 @@ const Physics = () => {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [chatMessages, flowchartData]);
+
+  useEffect(() => {
+    // Initialize speech recognition
+    if ('webkitSpeechRecognition' in window) {
+      const recognition = new window.webkitSpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        console.log('Speech recognition started');
+        setIsRecording(true);
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join('');
+        console.log('Transcript:', transcript);
+        setUserPrompt(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        let errorMessage = 'Speech recognition failed. ';
+        
+        switch(event.error) {
+          case 'no-speech':
+            errorMessage += 'No speech was detected.';
+            break;
+          case 'aborted':
+            errorMessage += 'Speech recognition was aborted.';
+            break;
+          case 'audio-capture':
+            errorMessage += 'No microphone was found.';
+            break;
+          case 'network':
+            errorMessage += 'Network error occurred.';
+            break;
+          case 'not-allowed':
+            errorMessage += 'Microphone permission was denied.';
+            break;
+          case 'service-not-allowed':
+            errorMessage += 'Speech recognition service is not allowed.';
+            break;
+          default:
+            errorMessage += 'An unknown error occurred.';
+        }
+
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: errorMessage }
+        ]);
+        setIsRecording(false);
+      };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ended');
+        setIsRecording(false);
+      };
+
+      setRecognition(recognition);
+    } else {
+      console.error('Speech recognition not supported');
+      setIsSpeechSupported(false);
+      setChatMessages(prev => [
+        ...prev,
+        { role: "bot", text: "Speech recognition is not supported in your browser. Please use Chrome or Edge." }
+      ]);
+    }
+  }, []);
 
   const handleGenerate = async (e) => {
     e.preventDefault();
@@ -145,6 +219,43 @@ const Physics = () => {
       }
       return <span key={index}>{segment}</span>;
     });
+  };
+
+  const startRecording = () => {
+    if (!isSpeechSupported) {
+      setChatMessages(prev => [
+        ...prev,
+        { role: "bot", text: "Speech recognition is not supported in your browser. Please use Chrome or Edge." }
+      ]);
+      return;
+    }
+
+    if (recognition) {
+      try {
+        recognition.start();
+      } catch (error) {
+        console.error('Error starting recording:', error);
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: "Could not start speech recognition. Please check your microphone permissions and try again." }
+        ]);
+        setIsRecording(false);
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (recognition && isRecording) {
+      try {
+        recognition.stop();
+      } catch (error) {
+        console.error('Error stopping recording:', error);
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: "Error stopping speech recognition. Please try again." }
+        ]);
+      }
+    }
   };
 
   return (
@@ -346,6 +457,27 @@ const Physics = () => {
             title={isWebSearch ? "Disable web search" : "Enable web search"}
           >
             🔍
+          </button>
+
+          <button
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={loading}
+            style={{
+              background: isRecording ? "#dc2626" : "#2a2a2e",
+              color: "#fff",
+              border: "none",
+              padding: "0.75rem",
+              fontSize: "1rem",
+              borderRadius: "0.5rem",
+              cursor: loading ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={isRecording ? "Stop recording" : "Start recording"}
+          >
+            {isRecording ? "⏹️" : "🎤"}
           </button>
 
           <button

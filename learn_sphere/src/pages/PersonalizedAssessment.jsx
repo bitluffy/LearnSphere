@@ -253,14 +253,27 @@ const PersonalizedAssessment = () => {
             </h2>
             <div className="space-y-2">
               {recentQueries.length > 0 ? (
-                recentQueries.map((query, index) => (
-                  <div key={index} className="bg-gray-700 p-3 rounded">
-                    {query.query}
-                  </div>
-                ))
+                <>
+                  <p className="text-sm text-gray-400 mb-3">
+                    {recentQueries.length < 4 ? (
+                      <span className="text-yellow-400">
+                        Need {4 - recentQueries.length} more prompt{4 - recentQueries.length !== 1 ? 's' : ''} to generate a quiz
+                      </span>
+                    ) : (
+                      <span className="text-green-400">
+                        Ready to generate quiz! ({recentQueries.length} prompts available)
+                      </span>
+                    )}
+                  </p>
+                  {recentQueries.map((query, index) => (
+                    <div key={index} className="bg-gray-700 p-3 rounded">
+                      {query.query}
+                    </div>
+                  ))}
+                </>
               ) : (
                 <p className="text-gray-400">
-                  No recent queries found for {selectedSubject}
+                  No recent queries found for {selectedSubject}. You need at least 4 prompts to generate a quiz.
                 </p>
               )}
             </div>
@@ -270,10 +283,12 @@ const PersonalizedAssessment = () => {
           <div className="text-center mb-8">
             <button
               onClick={generatePersonalizedQuiz}
-              disabled={loading || recentQueries.length === 0}
+              disabled={loading || recentQueries.length < 4}
               className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg transition-all disabled:opacity-50"
             >
-              {loading ? "Generating..." : "Generate Personalized Quiz"}
+              {loading ? "Generating..." : recentQueries.length < 4 ? 
+                `Need ${4 - recentQueries.length} more prompt${4 - recentQueries.length !== 1 ? 's' : ''}` : 
+                "Generate Personalized Quiz"}
             </button>
           </div>
 
@@ -300,7 +315,7 @@ const PersonalizedAssessment = () => {
                   </p>
 
                   <div className="space-y-3">
-                    // When displaying options, include the option letter
+                    
                     {question.options.map((option, optIndex) => {
                       const optionLetter = String.fromCharCode(65 + optIndex); // A, B, C, D
                       return (

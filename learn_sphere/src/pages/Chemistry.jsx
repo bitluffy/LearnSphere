@@ -13,11 +13,18 @@ const Chemistry = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [flowchartData, setFlowchartData] = useState(null);
   const [isWebSearch, setIsWebSearch] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState(null);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [rateLimitRetryAfter, setRateLimitRetryAfter] = useState(0);
   const subject = "Chemistry";
+  const storageKey = "chemistryChat";
 
   // Load saved chat from session storage
   useEffect(() => {
-    const savedChat = sessionStorage.getItem("chemistryChat");
+    const savedChat = sessionStorage.getItem(storageKey);
     if (savedChat) {
       setChatMessages(JSON.parse(savedChat));
     }
@@ -25,7 +32,7 @@ const Chemistry = () => {
 
   // Save chat messages to session storage on update
   useEffect(() => {
-    sessionStorage.setItem("chemistryChat", JSON.stringify(chatMessages));
+    sessionStorage.setItem(storageKey, JSON.stringify(chatMessages));
   }, [chatMessages]);
 
   // Scroll & Focus
@@ -37,6 +44,122 @@ const Chemistry = () => {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [chatMessages, flowchartData]);
+
+  useEffect(() => {
+    // Initialize speech recognition
+    if ('webkitSpeechRecognition' in window) {
+      const recognition = new window.webkitSpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        console.log('Speech recognition started');
+        setIsRecording(true);
+        setRetryCount(0); // Reset retry count on successful start
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join('');
+        console.log('Transcript:', transcript);
+        setUserPrompt(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        let errorMessage = 'Speech recognition failed. ';
+        
+        switch(event.error) {
+          case 'no-speech':
+            errorMessage += 'No speech was detected.';
+            break;
+          case 'aborted':
+            errorMessage += 'Speech recognition was aborted.';
+            break;
+          case 'audio-capture':
+            errorMessage += 'No microphone was found.';
+            break;
+          case 'network':
+            errorMessage += 'Network error occurred.';
+            if (retryCount < 3) {
+              setTimeout(() => {
+                setRetryCount(prev => prev + 1);
+                startRecording();
+              }, 1000 * (retryCount + 1)); // Exponential backoff
+              errorMessage += ' Retrying...';
+            }
+            break;
+          case 'not-allowed':
+            errorMessage += 'Microphone permission was denied.';
+            break;
+          case 'service-not-allowed':
+            errorMessage += 'Speech recognition service is not allowed.';
+            break;
+          default:
+            errorMessage += 'An unknown error occurred.';
+        }
+
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: errorMessage }
+        ]);
+        setIsRecording(false);
+      };
+
+      recognition.onend = () => {
+        console.log('Speech recognition ended');
+        setIsRecording(false);
+      };
+
+      setRecognition(recognition);
+    } else {
+      console.error('Speech recognition not supported');
+      setIsSpeechSupported(false);
+      setChatMessages(prev => [
+        ...prev,
+        { role: "bot", text: "Speech recognition is not supported in your browser. Please use Chrome or Edge." }
+      ]);
+    }
+  }, [retryCount]);
+
+  const startRecording = () => {
+    if (!isSpeechSupported) {
+      setChatMessages(prev => [
+        ...prev,
+        { role: "bot", text: "Speech recognition is not supported in your browser. Please use Chrome or Edge." }
+      ]);
+      return;
+    }
+
+    if (recognition) {
+      try {
+        recognition.start();
+      } catch (error) {
+        console.error('Error starting recording:', error);
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: "Could not start speech recognition. Please check your microphone permissions and try again." }
+        ]);
+        setIsRecording(false);
+      }
+    }
+  };
+
+  const stopRecording = () => {
+    if (recognition && isRecording) {
+      try {
+        recognition.stop();
+      } catch (error) {
+        console.error('Error stopping recording:', error);
+        setChatMessages(prev => [
+          ...prev,
+          { role: "bot", text: "Error stopping speech recognition. Please try again." }
+        ]);
+      }
+    }
+  };
 
   const handleGenerate = async (e) => {
     e.preventDefault();
@@ -81,7 +204,6 @@ const Chemistry = () => {
         if (!token) throw new Error("Please log in to use the chat feature");
 
         if (isWebSearch) {
-          // Web search request
           const res = await fetch("http://localhost:3000/api/web-search", {
             method: "POST",
             headers: {
@@ -90,6 +212,14 @@ const Chemistry = () => {
             },
             body: JSON.stringify({ query: userPrompt }),
           });
+          
+          if (res.status === 429) {
+            const retryAfter = parseInt(res.headers.get('retry-after')) || 600;
+            setIsRateLimited(true);
+            setRateLimitRetryAfter(retryAfter);
+            throw new Error(`Rate limit reached. Please try again in ${Math.ceil(retryAfter / 60)} minutes.`);
+          }
+
           const data = await res.json();
           if (data.success) {
             setChatMessages((prev) => [
@@ -103,7 +233,6 @@ const Chemistry = () => {
             throw new Error(data.error || "Web search failed");
           }
         } else {
-          // Regular chemistry chat request
           const res = await fetch("http://localhost:3000/chemistry", {
             method: "POST",
             headers: {
@@ -112,6 +241,14 @@ const Chemistry = () => {
             },
             body: JSON.stringify({ query: userPrompt }),
           });
+
+          if (res.status === 429) {
+            const retryAfter = parseInt(res.headers.get('retry-after')) || 600;
+            setIsRateLimited(true);
+            setRateLimitRetryAfter(retryAfter);
+            throw new Error(`Rate limit reached. Please try again in ${Math.ceil(retryAfter / 60)} minutes.`);
+          }
+
           const data = await res.json();
           setChatMessages((prev) => [
             ...prev,
@@ -120,6 +257,7 @@ const Chemistry = () => {
         }
       }
     } catch (err) {
+      console.error("Error in handleGenerate:", err);
       if (mode === "flowchart") {
         setFlowchartData({
           svg: "<div style='color:red'>Failed to load flowchart</div>",
@@ -136,6 +274,24 @@ const Chemistry = () => {
     setLoading(false);
     setIsWebSearch(false);
   };
+
+  // Add rate limit countdown effect
+  useEffect(() => {
+    let timer;
+    if (isRateLimited && rateLimitRetryAfter > 0) {
+      timer = setInterval(() => {
+        setRateLimitRetryAfter(prev => {
+          if (prev <= 1) {
+            setIsRateLimited(false);
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isRateLimited, rateLimitRetryAfter]);
 
   const renderWithLatex = (text) => {
     const segments = text.split(/(\$\$[\s\S]+?\$\$|\$[^\$]+\$)/g);
@@ -215,6 +371,21 @@ const Chemistry = () => {
           </div>
         </div>
 
+        {/* Add rate limit warning */}
+        {isRateLimited && (
+          <div
+            style={{
+              padding: "0.5rem 1rem",
+              backgroundColor: "#dc2626",
+              color: "#fff",
+              textAlign: "center",
+              fontSize: "0.875rem",
+            }}
+          >
+            Rate limit reached. Please wait {Math.ceil(rateLimitRetryAfter / 60)} minutes before trying again.
+          </div>
+        )}
+
         {/* Scrollable Output Area */}
         <div ref={containerRef} style={{ flex: 1, overflowY: "auto", padding: "1rem 1.5rem" }}>
           {mode === "chat" && chatMessages.length === 0 && (
@@ -293,7 +464,9 @@ const Chemistry = () => {
             }}
             rows={1}
             placeholder={
-              mode === "flowchart"
+              isRateLimited
+                ? `Rate limited. Please wait ${Math.ceil(rateLimitRetryAfter / 60)} minutes...`
+                : mode === "flowchart"
                 ? "Describe chemistry process for flowchart..."
                 : isWebSearch
                 ? "Search the web for chemistry information..."
@@ -309,14 +482,14 @@ const Chemistry = () => {
               color: "#fff",
               fontSize: "1rem",
             }}
-            disabled={loading}
+            disabled={loading || isRateLimited}
             required
           />
 
           <button
             type="button"
             onClick={() => setIsWebSearch(!isWebSearch)}
-            disabled={loading}
+            disabled={loading || isRateLimited}
             style={{
               background: isWebSearch ? "#2563eb" : "#2a2a2e",
               color: "#fff",
@@ -324,7 +497,7 @@ const Chemistry = () => {
               padding: "0.75rem",
               fontSize: "1rem",
               borderRadius: "0.5rem",
-              cursor: loading ? "not-allowed" : "pointer",
+              cursor: (loading || isRateLimited) ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -335,20 +508,41 @@ const Chemistry = () => {
           </button>
 
           <button
-            type="submit"
-            disabled={loading}
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={loading || isRateLimited}
             style={{
-              background: "#2563eb",
+              background: isRecording ? "#dc2626" : "#2a2a2e",
+              color: "#fff",
+              border: "none",
+              padding: "0.75rem",
+              fontSize: "1rem",
+              borderRadius: "0.5rem",
+              cursor: (loading || isRateLimited) ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title={isRecording ? "Stop recording" : "Start recording"}
+          >
+            {isRecording ? "⏹️" : "🎤"}
+          </button>
+
+          <button
+            type="submit"
+            disabled={loading || isRateLimited}
+            style={{
+              background: isRateLimited ? "#4b5563" : "#2563eb",
               color: "#fff",
               border: "none",
               padding: "0.75rem 1.5rem",
               fontSize: "1rem",
               borderRadius: "0.5rem",
               fontWeight: "bold",
-              cursor: loading ? "not-allowed" : "pointer",
+              cursor: (loading || isRateLimited) ? "not-allowed" : "pointer",
             }}
           >
-            {loading ? "..." : "Send"}
+            {loading ? "..." : isRateLimited ? "Rate Limited" : "Send"}
           </button>
         </form>
       </div>
